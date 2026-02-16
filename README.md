@@ -1,8 +1,11 @@
 music-to-video
 
-Convert a music file and cover image into:
-- A YouTube-ready player-style video
-- A YouTube thumbnail image
+Turn a single track into YouTube-ready visual assets with one command.
+
+What this tool produces:
+- A full HD (`1920x1080`) player-style music video with dynamic UI motion
+- A click-oriented YouTube thumbnail generated from the same cover art
+- A saved FFmpeg filter graph for debugging and custom tuning
 
 Requirements
 - Python 3.10+
