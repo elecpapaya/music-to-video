@@ -22,6 +22,16 @@ from text_layout import fit_title_block, truncate_with_ellipsis
 
 THUMB_W = 1280
 THUMB_H = 720
+COVER_RADIUS = 22
+OUTER_RADIUS_DELTA = 6
+GLASS_FILL_ALPHA = 56
+GLASS_OUTLINE_ALPHA = 22
+GLASS_BLUR_RADIUS = 10
+PLAY_GLOW_ALPHA = 70
+PLAY_GLOW_BLUR_RADIUS = 18
+PLAY_GLOW_RADIUS_ADD = 20
+BADGE_TAIL_SAT_SCALE = 0.82
+BADGE_TAIL_LIGHT_SCALE = 0.95
 
 # Safe text area for desktop/mobile overlays.
 SAFE_LEFT = 64
@@ -62,6 +72,28 @@ def _load_font(font_path: str | None, size: int) -> ImageFont.ImageFont:
         except OSError:
             return ImageFont.load_default()
     return ImageFont.load_default()
+
+
+def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    mdraw = ImageDraw.Draw(mask)
+    mdraw.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=255)
+    return mask
+
+
+def _apply_rounded_alpha(img_rgba: Image.Image, radius: int) -> Image.Image:
+    out = img_rgba.convert("RGBA")
+    out.putalpha(_rounded_mask(out.size, radius))
+    return out
+
+
+def _desaturate_rgb(rgb: tuple[int, int, int], sat_scale: float = 0.88, light_scale: float = 0.97) -> tuple[int, int, int]:
+    r, g, b = (rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    s = max(0.0, min(1.0, s * sat_scale))
+    l = max(0.0, min(1.0, l * light_scale))
+    rr, gg, bb = colorsys.hls_to_rgb(h, l, s)
+    return (int(round(rr * 255)), int(round(gg * 255)), int(round(bb * 255)))
 
 
 def fit_cover_to_canvas(img: Image.Image, w: int, h: int) -> Image.Image:
@@ -147,6 +179,7 @@ def make_thumbnail(
 ) -> None:
     cover = Image.open(cover_path).convert("RGB")
     accent, deep = cover_palette(cover)
+    tail_accent = _desaturate_rgb(accent, sat_scale=BADGE_TAIL_SAT_SCALE, light_scale=BADGE_TAIL_LIGHT_SCALE)
     cover_size = 548
     card_x = 700
     card_y = 86
@@ -185,10 +218,14 @@ def make_thumbnail(
     canvas = Image.alpha_composite(canvas, accents)
 
     cover_box = fit_cover_to_canvas(cover, cover_size, cover_size)
-    cover_rgba = cover_box.convert("RGBA")
+    cover_rgba = _apply_rounded_alpha(cover_box.convert("RGBA"), COVER_RADIUS)
     shadow = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(shadow)
-    sdraw.rectangle((card_x - 14, card_y - 14, card_x + cover_size + 14, card_y + cover_size + 14), fill=(0, 0, 0, 196))
+    sdraw.rounded_rectangle(
+        (card_x - 14, card_y - 14, card_x + cover_size + 14, card_y + cover_size + 14),
+        radius=COVER_RADIUS + 8,
+        fill=(0, 0, 0, 196),
+    )
     shadow = shadow.filter(ImageFilter.GaussianBlur(radius=14))
     canvas = Image.alpha_composite(canvas, shadow)
     canvas.alpha_composite(cover_rgba, (card_x, card_y))
@@ -196,13 +233,13 @@ def make_thumbnail(
     draw = ImageDraw.Draw(canvas)
     draw.rounded_rectangle(
         (card_x - 2, card_y - 2, card_x + cover_size + 2, card_y + cover_size + 2),
-        radius=20,
+        radius=COVER_RADIUS,
         outline=(255, 255, 255, 122),
         width=2,
     )
     draw.rounded_rectangle(
         (card_x - 14, card_y - 14, card_x + cover_size + 14, card_y + cover_size + 14),
-        radius=26,
+        radius=COVER_RADIUS + OUTER_RADIUS_DELTA,
         outline=(*accent, 124),
         width=2,
     )
@@ -214,7 +251,7 @@ def make_thumbnail(
     bx = SAFE_LEFT
     by = max(SAFE_TOP + 8, 58)
     draw.rounded_rectangle((bx, by, bx + bw, by + bh), radius=16, fill=(15, 18, 26, 198), outline=(*accent, 225), width=2)
-    draw.polygon([(bx + bw, by + 10), (bx + bw + 22, by + bh // 2), (bx + bw, by + bh - 10)], fill=(*accent, 230))
+    draw.polygon([(bx + bw, by + 10), (bx + bw + 22, by + bh // 2), (bx + bw, by + bh - 10)], fill=(*tail_accent, 230))
     draw.text((bx + badge_pad_x, by + badge_pad_y - 1), badge_text, font=badge_font, fill=(255, 255, 255, 246))
 
     title_area_x = SAFE_LEFT
@@ -236,13 +273,49 @@ def make_thumbnail(
     )
     title_font = _load_font(font_title_path, title_size)
 
+    title_probe_y = title_y
+    for line in wrapped:
+        bb = draw.textbbox((title_area_x, title_probe_y), line if line else "Ag", font=title_font, stroke_width=4)
+        title_probe_y = bb[3] + line_gap
+    title_block_bottom = title_probe_y
+    artist_font = _load_font(font_body_path, 44)
+    artist_text = truncate_with_ellipsis(draw, artist, artist_font, title_area_w - 14)
+    artist_y = min(title_block_bottom + 14, SAFE_BOTTOM - (90 if tagline.strip() else 50))
+
+    text_bottom = artist_y + 50
+    if tagline.strip():
+        body_font_probe = _load_font(font_body_path, 30)
+        tagline_probe = truncate_with_ellipsis(draw, tagline.strip(), body_font_probe, title_area_w)
+        tagline_y_probe = artist_y + 64
+        if tagline_y_probe <= SAFE_BOTTOM - 22 and title_area_x < TS_BLOCK_X:
+            tbb = draw.textbbox((title_area_x, tagline_y_probe), tagline_probe if tagline_probe else "Ag", font=body_font_probe)
+            text_bottom = max(text_bottom, tbb[3])
+
+    gx0 = SAFE_LEFT - 12
+    gx1 = SAFE_RIGHT + 10
+    gy0 = max(SAFE_TOP + 6, title_y - 18)
+    gy1 = min(SAFE_BOTTOM + 16, text_bottom + 18)
+    if gy1 > gy0:
+        glass = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
+        gldraw = ImageDraw.Draw(glass)
+        gldraw.rounded_rectangle(
+            (gx0, gy0, gx1, gy1),
+            radius=20,
+            fill=(0, 0, 0, GLASS_FILL_ALPHA),
+            outline=(255, 255, 255, GLASS_OUTLINE_ALPHA),
+            width=1,
+        )
+        glass = glass.filter(ImageFilter.GaussianBlur(radius=GLASS_BLUR_RADIUS))
+        canvas = Image.alpha_composite(canvas, glass)
+        draw = ImageDraw.Draw(canvas)
+
     draw_multiline_with_stroke(
         draw=draw,
         lines=wrapped,
-        x=title_area_x + 5,
-        y=title_y + 6,
+        x=title_area_x + 3,
+        y=title_y + 4,
         font=title_font,
-        fill=(*accent, 155),
+        fill=(*accent, 162),
         stroke_fill=(0, 0, 0, 0),
         stroke_width=0,
         line_gap=line_gap,
@@ -259,8 +332,6 @@ def make_thumbnail(
         line_gap=line_gap,
     )
 
-    artist_font = _load_font(font_body_path, 44)
-    artist_text = truncate_with_ellipsis(draw, artist, artist_font, title_area_w - 14)
     artist_y = min(next_y + 14, SAFE_BOTTOM - (90 if tagline.strip() else 50))
     draw.rounded_rectangle(
         (title_area_x - 2, artist_y - 8, title_area_x + draw.textlength(artist_text, font=artist_font) + 20, artist_y + 50),
@@ -278,6 +349,13 @@ def make_thumbnail(
 
     play_cx, play_cy = 1166, 648
     play_r = 39
+    play_glow = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
+    pgdraw = ImageDraw.Draw(play_glow)
+    glow_r = play_r + PLAY_GLOW_RADIUS_ADD
+    pgdraw.ellipse((play_cx - glow_r, play_cy - glow_r, play_cx + glow_r, play_cy + glow_r), fill=(*accent, PLAY_GLOW_ALPHA))
+    play_glow = play_glow.filter(ImageFilter.GaussianBlur(radius=PLAY_GLOW_BLUR_RADIUS))
+    canvas = Image.alpha_composite(canvas, play_glow)
+    draw = ImageDraw.Draw(canvas)
     draw.ellipse(
         (play_cx - play_r, play_cy - play_r, play_cx + play_r, play_cy + play_r),
         fill=(0, 0, 0, 124),

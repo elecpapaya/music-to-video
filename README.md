@@ -1,11 +1,11 @@
 music-to-video
 
-Turn a single track into YouTube-ready visual assets with one command.
+Turn one music track into YouTube-ready assets with one command.
 
 What this tool produces:
-- A full HD (`1920x1080`) player-style music video with dynamic UI motion
-- A click-oriented YouTube thumbnail generated from the same cover art
-- A saved FFmpeg filter graph for debugging and custom tuning
+- A full HD (`1920x1080`) player-style music video
+- A click-oriented YouTube thumbnail
+- A saved FFmpeg filter graph (`*_filter.txt`) for tuning
 
 Requirements
 - Python 3.10+
@@ -22,7 +22,7 @@ Quick Start
 python make_player_apple.py --title "Midnight satellite" --artist "SUNO AI" --genre "K-POP"
 ```
 
-The command above generates:
+Generated files:
 - `output/Midnight satellite.mp4`
 - `output/Midnight satellite_youtube_thumb.jpg`
 - `output/Midnight satellite_filter.txt`
@@ -37,51 +37,70 @@ python make_player_apple.py \
   --genre "K-POP"
 ```
 
-Explicit file mode (`--song` / `--cover`)
+Explicit file mode
 ```bash
 python make_player_apple.py \
   --song "song.wav" \
   --cover "cover.jpg" \
   --title "Song Title" \
-  --artist "Artist Name" \
-  --style youtube \
-  --quality high \
-  --motion-smooth 0.18 \
-  --knob-scale 1.0 \
-  --genre "K-POP"
+  --artist "Artist Name"
 ```
 
-Title-Only Mode (Auto Input Lookup)
-If you pass only `--title`, the script tries to find matching audio/image files automatically.
+Advanced Motion & Reactive Features
 
-Audio extensions checked:
+B-roll auto edit from clip folder:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --artist "SUNO AI" \
+  --broll-dir "./broll" \
+  --beat-cut auto \
+  --camera-motion parallax \
+  --reactive-level 0.40 \
+  --color-preset cinema
+```
+
+Single B-roll loop video:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --broll-video "./bg_loop.mp4" \
+  --broll-blend softlight \
+  --broll-opacity 0.32
+```
+
+Color preset + LUT:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --color-preset neon \
+  --lut "./luts/teal_orange.cube" \
+  --lut-intensity 0.55
+```
+
+Title-only mode lookup
+If `--song` / `--cover` are omitted, the script searches by title base name.
+
+Audio extensions:
 - `.wav`, `.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`
 
-Image extensions checked:
+Image extensions:
 - `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
 
-Options
-- `--song`: audio file path (optional if `--title` is used)
-- `--cover`: cover image path (optional if `--title` is used)
-- `--title`: track title; also used for auto file lookup
-- `--artist`: artist display text (default: `Artist`)
-- `--style`: `youtube` (default) or `classic`
+Main options
+- `--style`: `youtube` or `classic`
 - `--quality`: `standard`, `high`, `ultra`
-- `--title-max-lines`: max title line count in video/thumbnail (default: `3`)
-- `--title-min-font`: minimum title font size bound (default: `44`)
-- `--title-max-font`: maximum title font size bound (default: `82`)
-- `--motion-smooth`: progress/knob easing amount `0.0..1.0` (default: `0.18`)
-- `--knob-scale`: progress knob size multiplier (default: `1.0`)
-- `--font-title`: optional custom title font path
-- `--font-body`: optional custom body font path
-- `--genre`: thumbnail badge text (example: `K-POP`, `R&B`)
-- `--tagline`: optional thumbnail subtitle text
-- `--skip-thumbnail`: skip thumbnail generation
-- `--outdir`: output directory (default: `output`)
-
-Thumbnail safety behavior
-- Text is automatically constrained to safe margins for desktop/mobile readability.
-- Text placement avoids YouTube's bottom-right timestamp region.
+- `--title-max-lines`, `--title-min-font`, `--title-max-font`
+- `--motion-smooth`, `--knob-scale`
+- `--font-title`, `--font-body`
+- `--broll-dir`, `--broll-video`
+- `--broll-opacity`, `--broll-blend`
+- `--beat-cut`, `--beat-sensitivity`
+- `--min-cut-interval`, `--max-cut-interval`
+- `--camera-motion`, `--camera-strength`
+- `--reactive-level`, `--reactive-glow`, `--reactive-blur`, `--reactive-shake`
+- `--color-preset`, `--lut`, `--lut-intensity`
+- `--skip-thumbnail`
 
 Standalone thumbnail script
 ```bash
@@ -89,15 +108,13 @@ python make_thumbnail_youtube.py \
   --cover "cover.jpg" \
   --title "Song Title" \
   --artist "Artist Name" \
-  --genre "K-POP" \
-  --title-max-lines 3 \
-  --title-min-font 56 \
-  --title-max-font 102
+  --genre "K-POP"
 ```
 
 Troubleshooting
-- If you see `ffmpeg not found` or `ffprobe not found`, install FFmpeg and add it to PATH.
-- If title-only mode fails, provide explicit `--song` and `--cover` paths.
+- If `ffmpeg` / `ffprobe` are missing, install FFmpeg and add it to PATH.
+- If title-only lookup fails, pass explicit `--song` and `--cover`.
+- If LUT is invalid, video renders with preset-only color grading.
 
 License
 MIT (see LICENSE)
