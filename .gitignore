@@ -1,0 +1,19 @@
+output/
+
+# Source media
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+
+# Cover / image assets
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.bmp
+
+# Rendered videos
+*.mp4
