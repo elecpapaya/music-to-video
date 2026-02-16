@@ -19,15 +19,25 @@ pip install pillow
 
 Quick Start
 ```bash
-python make_player_apple.py --song "Midnight whispers.wav" --cover "Midnight whispers.jpg" --title "Midnight whispers" --artist "Susan"
+python make_player_apple.py --title "Midnight satellite" --artist "SUNO AI" --genre "K-POP"
 ```
 
 The command above generates:
-- `output/Midnight whispers.mp4`
-- `output/Midnight whispers_youtube_thumb.jpg`
-- `output/Midnight whispers_filter.txt`
+- `output/Midnight satellite.mp4`
+- `output/Midnight satellite_youtube_thumb.jpg`
+- `output/Midnight satellite_filter.txt`
 
 Usage
+
+Title-only mode (recommended)
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --artist "SUNO AI" \
+  --genre "K-POP"
+```
+
+Explicit file mode (`--song` / `--cover`)
 ```bash
 python make_player_apple.py \
   --song "song.wav" \
@@ -36,15 +46,13 @@ python make_player_apple.py \
   --artist "Artist Name" \
   --style youtube \
   --quality high \
+  --motion-smooth 0.18 \
+  --knob-scale 1.0 \
   --genre "K-POP"
 ```
 
 Title-Only Mode (Auto Input Lookup)
-If you only pass `--title`, the script tries to find matching audio/image files automatically.
-
-```bash
-python make_player_apple.py --title "Midnight whispers" --artist "Susan" --genre "K-POP"
-```
+If you pass only `--title`, the script tries to find matching audio/image files automatically.
 
 Audio extensions checked:
 - `.wav`, `.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`
@@ -59,11 +67,37 @@ Options
 - `--artist`: artist display text (default: `Artist`)
 - `--style`: `youtube` (default) or `classic`
 - `--quality`: `standard`, `high`, `ultra`
+- `--title-max-lines`: max title line count in video/thumbnail (default: `3`)
+- `--title-min-font`: minimum title font size bound (default: `44`)
+- `--title-max-font`: maximum title font size bound (default: `82`)
+- `--motion-smooth`: progress/knob easing amount `0.0..1.0` (default: `0.18`)
+- `--knob-scale`: progress knob size multiplier (default: `1.0`)
+- `--font-title`: optional custom title font path
+- `--font-body`: optional custom body font path
 - `--genre`: thumbnail badge text (example: `K-POP`, `R&B`)
 - `--tagline`: optional thumbnail subtitle text
 - `--skip-thumbnail`: skip thumbnail generation
 - `--outdir`: output directory (default: `output`)
 
+Thumbnail safety behavior
+- Text is automatically constrained to safe margins for desktop/mobile readability.
+- Text placement avoids YouTube's bottom-right timestamp region.
+
+Standalone thumbnail script
+```bash
+python make_thumbnail_youtube.py \
+  --cover "cover.jpg" \
+  --title "Song Title" \
+  --artist "Artist Name" \
+  --genre "K-POP" \
+  --title-max-lines 3 \
+  --title-min-font 56 \
+  --title-max-font 102
+```
+
 Troubleshooting
 - If you see `ffmpeg not found` or `ffprobe not found`, install FFmpeg and add it to PATH.
 - If title-only mode fails, provide explicit `--song` and `--cover` paths.
+
+License
+MIT (see LICENSE)
