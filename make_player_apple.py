@@ -362,10 +362,10 @@ def _build_end_cta_chain(
 
     lines = [
         f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=0:y=0:w=1920:h=1080:color=black@0.48:t=fill,drawbox=x=0:y=670:w=1920:h=170:color=0x{point_hex}@0.12:t=fill,drawbox=x=0:y=760:w=1920:h=320:color=0x{point_hex}@0.18:t=fill[cta_fs0]",
-        f"[cta_fs0]drawbox=x=260:y=430:w=1400:h=210:color=black@0.40:t=fill,drawbox=x=260:y=430:w=1400:h=2:color=0x{point_hex}@0.40:t=fill[cta_fs1]",
+        f"[cta_fs0]drawbox=x=170:y=830:w=1580:h=170:color=black@0.44:t=fill,drawbox=x=170:y=830:w=1580:h=2:color=0x{point_hex}@0.42:t=fill[cta_fs1]",
         "[cta_fs1]gblur=sigma=1.2:steps=1[cta_fs2]",
-        f"[cta_fs2]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y=500:fontsize=64:fontcolor=white@0.97:borderw=2:bordercolor=black@0.38[cta_fs3]",
-        f"[cta_fs3]drawtext=fontfile='{font_body_ff}':text='Thanks for listening':x='(w-tw)/2':y=582:fontsize=34:fontcolor=white@0.84:borderw=1:bordercolor=black@0.30[cta_fs4]",
+        f"[cta_fs2]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y=878:fontsize=56:fontcolor=white@0.97:borderw=2:bordercolor=black@0.38[cta_fs3]",
+        f"[cta_fs3]drawtext=fontfile='{font_body_ff}':text='Thanks for listening':x='(w-tw)/2':y=946:fontsize=30:fontcolor=white@0.84:borderw=1:bordercolor=black@0.30[cta_fs4]",
     ]
     lines.extend(
         [
