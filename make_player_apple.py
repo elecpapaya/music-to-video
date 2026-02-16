@@ -361,6 +361,8 @@ def _build_end_cta_chain(
         ]
 
     lines = [
+        f"[{input_label}]gblur=sigma=16:steps=1[cta_bg_blur]",
+        f"[{input_label}][cta_bg_blur]overlay=0:0:enable='{enable_expr}':format=auto[cta_bg_sel]",
         f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=0:y=0:w=1920:h=1080:color=black@0.48:t=fill,drawbox=x=0:y=670:w=1920:h=170:color=0x{point_hex}@0.12:t=fill,drawbox=x=0:y=760:w=1920:h=320:color=0x{point_hex}@0.18:t=fill[cta_fs0]",
         f"[cta_fs0]drawbox=x=260:y=430:w=1400:h=210:color=black@0.40:t=fill,drawbox=x=260:y=430:w=1400:h=2:color=0x{point_hex}@0.40:t=fill[cta_fs1]",
         "[cta_fs1]gblur=sigma=1.2:steps=1[cta_fs2]",
@@ -370,7 +372,7 @@ def _build_end_cta_chain(
     lines.extend(
         [
             f"[cta_fs4]fade=t=in:st={cta_start:.3f}:d={fade_in:.3f}:alpha=1,fade=t=out:st={max(cta_start, dur-fade_out):.3f}:d={fade_out:.3f}:alpha=1[cta_layer]",
-            f"[{input_label}][cta_layer]overlay=0:0:enable='{enable_expr}':format=auto[{output_label}]",
+            f"[cta_bg_sel][cta_layer]overlay=0:0:enable='{enable_expr}':format=auto[{output_label}]",
         ]
     )
     return lines
