@@ -367,19 +367,38 @@ def _build_end_cta_chain(
         return [f"[{input_label}]null[{output_label}]"]
 
     style = (end_cta_style or "clean").strip().lower()
-    if style != "clean":
-        style = "clean"
+    if style not in ("clean", "fullscreen"):
+        style = "fullscreen"
     cta_dur = max(1.0, min(15.0, float(end_cta_duration)))
     cta_start = max(0.0, float(dur) - cta_dur)
-    cta_text = ffmpeg_escape_drawtext_text((end_cta_text or "👍 Like & Subscribe").strip() or "👍 Like & Subscribe")
+    cta_text = ffmpeg_escape_drawtext_text((end_cta_text or "Like & Subscribe").strip() or "Like & Subscribe")
     enable_expr = f"between(t\\,{cta_start:.3f}\\,{dur:.3f})"
+    fade_in = min(0.7, cta_dur * 0.25)
+    fade_out = min(0.7, cta_dur * 0.25)
 
-    return [
-        f"color=c=black@0.0:s=1180x92,format=rgba,drawbox=x=0:y=0:w=1180:h=92:color=black@0.42:t=fill,drawbox=x=0:y=0:w=1180:h=2:color=0x{point_hex}@0.40:t=fill[cta_card0]",
-        "[cta_card0]gblur=sigma=1.2:steps=1[cta_card]",
-        f"[cta_card]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y='(h-th)/2-1':fontsize=34:fontcolor=white@0.95:borderw=1:bordercolor=black@0.35[cta_card_t]",
-        f"[{input_label}][cta_card_t]overlay=x='(1920-w)/2':y=952:enable='{enable_expr}':format=auto[{output_label}]",
+    if style == "clean":
+        return [
+            f"color=c=black@0.0:s=1180x92,format=rgba,drawbox=x=0:y=0:w=1180:h=92:color=black@0.42:t=fill,drawbox=x=0:y=0:w=1180:h=2:color=0x{point_hex}@0.40:t=fill[cta_card0]",
+            "[cta_card0]gblur=sigma=1.2:steps=1[cta_card]",
+            f"[cta_card]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y='(h-th)/2-1':fontsize=34:fontcolor=white@0.95:borderw=1:bordercolor=black@0.35[cta_card_t]",
+            f"[cta_card_t]fade=t=in:st={cta_start:.3f}:d={fade_in:.3f}:alpha=1,fade=t=out:st={max(cta_start, dur-fade_out):.3f}:d={fade_out:.3f}:alpha=1[cta_layer]",
+            f"[{input_label}][cta_layer]overlay=x='(1920-w)/2':y=952:enable='{enable_expr}':format=auto[{output_label}]",
+        ]
+
+    lines = [
+        f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=0:y=0:w=1920:h=1080:color=black@0.48:t=fill,drawbox=x=0:y=670:w=1920:h=170:color=0x{point_hex}@0.12:t=fill,drawbox=x=0:y=760:w=1920:h=320:color=0x{point_hex}@0.18:t=fill[cta_fs0]",
+        f"[cta_fs0]drawbox=x=260:y=430:w=1400:h=210:color=black@0.40:t=fill,drawbox=x=260:y=430:w=1400:h=2:color=0x{point_hex}@0.40:t=fill[cta_fs1]",
+        "[cta_fs1]gblur=sigma=1.2:steps=1[cta_fs2]",
+        f"[cta_fs2]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y=500:fontsize=64:fontcolor=white@0.97:borderw=2:bordercolor=black@0.38[cta_fs3]",
+        f"[cta_fs3]drawtext=fontfile='{font_body_ff}':text='Thanks for listening':x='(w-tw)/2':y=582:fontsize=34:fontcolor=white@0.84:borderw=1:bordercolor=black@0.30[cta_fs4]",
     ]
+    lines.extend(
+        [
+            f"[cta_fs4]fade=t=in:st={cta_start:.3f}:d={fade_in:.3f}:alpha=1,fade=t=out:st={max(cta_start, dur-fade_out):.3f}:d={fade_out:.3f}:alpha=1[cta_layer]",
+            f"[{input_label}][cta_layer]overlay=0:0:enable='{enable_expr}':format=auto[{output_label}]",
+        ]
+    )
+    return lines
 
 
 def _build_eq_chain(
@@ -799,9 +818,9 @@ def main() -> int:
     ap.add_argument("--eq-opacity", type=float, default=0.92)
     ap.add_argument("--bottom-band", choices=("off", "subtle", "medium"), default="subtle")
     ap.add_argument("--end-cta", choices=("on", "off"), default="on")
-    ap.add_argument("--end-cta-text", default="👍 Like & Subscribe")
+    ap.add_argument("--end-cta-text", default="Like & Subscribe")
     ap.add_argument("--end-cta-duration", type=float, default=6.0)
-    ap.add_argument("--end-cta-style", choices=("clean",), default="clean")
+    ap.add_argument("--end-cta-style", choices=("clean", "fullscreen"), default="fullscreen")
     ap.add_argument("--color-preset", choices=("auto", "neutral", "cinema", "neon", "warm", "cool", "mono"), default="auto")
     ap.add_argument("--lut", default="")
     ap.add_argument("--lut-intensity", type=float, default=0.65)
@@ -994,7 +1013,7 @@ def main() -> int:
         print(f"Camera      : {args.camera_motion} ({args.camera_strength:.2f})")
         print(f"Reactive    : level={args.reactive_level:.2f} glow={args.reactive_glow:.2f} blur={args.reactive_blur:.2f} shake={args.reactive_shake:.2f}")
         print(f"EQ          : {args.eq_style}/{args.eq_intensity}/{args.eq_quality} hold={args.eq_peak_hold:.2f} glow={args.eq_glow:.2f} op={args.eq_opacity:.2f}")
-        print(f"Bottom UI   : band={args.bottom_band} end-cta={args.end_cta} ({args.end_cta_duration:.1f}s)")
+        print(f"Bottom UI   : band={args.bottom_band} end-cta={args.end_cta} {args.end_cta_style} ({args.end_cta_duration:.1f}s)")
         print(f"Color       : {preset} (lut={lut_path if lut_path else 'none'})")
         print(f"Graph       : {graph_path}")
         print(f"Thumb       : {thumb_path} ({'generated' if thumb_generated else 'skipped'})")

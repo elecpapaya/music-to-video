@@ -109,7 +109,8 @@ End CTA Frame:
 ```bash
 python make_player_apple.py \
   --title "Midnight satellite" \
-  --end-cta on
+  --end-cta on \
+  --end-cta-style fullscreen
 ```
 
 End CTA off:
@@ -123,7 +124,7 @@ Custom CTA text/duration:
 ```bash
 python make_player_apple.py \
   --title "Midnight satellite" \
-  --end-cta-text "👍 Like & Subscribe" \
+  --end-cta-text "Like & Subscribe" \
   --end-cta-duration 6
 ```
 
