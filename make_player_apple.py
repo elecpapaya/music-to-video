@@ -325,6 +325,169 @@ def _append_motion_chain(chains: list[str], *, input_label: str, output_label: s
     chains.append(f"[{input_label}]null[{output_label}]")
 
 
+def _build_bottom_band_chain(
+    *,
+    input_label: str,
+    output_label: str,
+    bottom_band: str,
+    mood_bg_hex: str,
+    point_hex: str,
+) -> list[str]:
+    mode = (bottom_band or "subtle").strip().lower()
+    if mode == "off":
+        return [f"[{input_label}]null[{output_label}]"]
+
+    if mode == "medium":
+        a1, a2, a3, hi = 0.14, 0.19, 0.24, 0.16
+    else:
+        a1, a2, a3, hi = 0.10, 0.14, 0.18, 0.11
+
+    return [
+        f"[{input_label}]drawbox=x=0:y=840:w=1920:h=82:color=0x{mood_bg_hex}@{a1:.3f}:t=fill[bb1]",
+        f"[bb1]drawbox=x=0:y=922:w=1920:h=90:color=0x{mood_bg_hex}@{a2:.3f}:t=fill[bb2]",
+        f"[bb2]drawbox=x=0:y=1012:w=1920:h=68:color=0x{mood_bg_hex}@{a3:.3f}:t=fill[bb3]",
+        f"[bb3]drawbox=x=0:y=842:w=1920:h=2:color=0x{point_hex}@{hi:.3f}:t=fill[{output_label}]",
+    ]
+
+
+def _build_end_cta_chain(
+    *,
+    input_label: str,
+    output_label: str,
+    font_body_ff: str,
+    point_hex: str,
+    end_cta: str,
+    end_cta_text: str,
+    end_cta_duration: float,
+    end_cta_style: str,
+    dur: float,
+) -> list[str]:
+    mode = (end_cta or "on").strip().lower()
+    if mode != "on":
+        return [f"[{input_label}]null[{output_label}]"]
+
+    style = (end_cta_style or "clean").strip().lower()
+    if style != "clean":
+        style = "clean"
+    cta_dur = max(1.0, min(15.0, float(end_cta_duration)))
+    cta_start = max(0.0, float(dur) - cta_dur)
+    cta_text = ffmpeg_escape_drawtext_text((end_cta_text or "👍 Like & Subscribe").strip() or "👍 Like & Subscribe")
+    enable_expr = f"between(t\\,{cta_start:.3f}\\,{dur:.3f})"
+
+    return [
+        f"color=c=black@0.0:s=1180x92,format=rgba,drawbox=x=0:y=0:w=1180:h=92:color=black@0.42:t=fill,drawbox=x=0:y=0:w=1180:h=2:color=0x{point_hex}@0.40:t=fill[cta_card0]",
+        "[cta_card0]gblur=sigma=1.2:steps=1[cta_card]",
+        f"[cta_card]drawtext=fontfile='{font_body_ff}':text='{cta_text}':x='(w-tw)/2':y='(h-th)/2-1':fontsize=34:fontcolor=white@0.95:borderw=1:bordercolor=black@0.35[cta_card_t]",
+        f"[{input_label}][cta_card_t]overlay=x='(1920-w)/2':y=952:enable='{enable_expr}':format=auto[{output_label}]",
+    ]
+
+
+def _build_eq_chain(
+    *,
+    eq_x: int,
+    eq_y: int,
+    eq_w: int,
+    eq_h: int,
+    audio_label: str,
+    input_label: str,
+    output_label: str,
+    style: str,
+    intensity: str,
+    quality: str,
+    eq_peak_hold: float,
+    eq_glow: float,
+    eq_opacity: float,
+) -> list[str]:
+    style_v = (style or "legacy").strip().lower()
+    intensity_v = (intensity or "balanced").strip().lower()
+    quality_v = (quality or "medium").strip().lower()
+
+    if intensity_v not in ("subtle", "balanced", "punchy"):
+        intensity_v = "balanced"
+    if quality_v not in ("low", "medium", "high"):
+        quality_v = "medium"
+
+    op = _clamp01(eq_opacity)
+    glow_knob = _clamp01(eq_glow)
+    hold_knob = _clamp01(eq_peak_hold)
+
+    if style_v == "legacy":
+        glow_a = min(0.64, 0.10 + glow_knob * 0.54)
+        top_a = min(0.98, 0.62 + hold_knob * 0.28)
+        return [
+            f"[{audio_label}]showfreqs=s={eq_w}x{eq_h}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.18:0.0,split=2[eq_raw][eq_top]",
+            f"[eq_raw]gblur=sigma=2.2:steps=1,colorchannelmixer=aa={glow_a:.3f}[eq_glow]",
+            f"[eq_top]colorchannelmixer=aa={top_a:.3f}[eq_top_a]",
+            f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eq_comp0]",
+            "[eq_comp0][eq_glow]overlay=0:0:format=auto[eq_comp1]",
+            "[eq_comp1][eq_top_a]overlay=0:0:format=auto[eq_comp2]",
+            f"[eq_comp2]colorchannelmixer=aa={op:.3f}[eq_comp]",
+            f"[{input_label}][eq_comp]overlay={eq_x}:{eq_y}:format=auto[{output_label}]",
+        ]
+
+    if quality_v == "low":
+        rw, rh = eq_w, max(36, int(round(eq_h * 0.70)))
+    elif quality_v == "high":
+        rw, rh = int(round(eq_w * 1.25)), int(round(eq_h * 1.25))
+    else:
+        rw, rh = eq_w, eq_h
+
+    intensity_map = {
+        "subtle": {"grid": 0.11, "tint": 0.12, "glow_mul": 0.42, "hold_mul": 0.44, "frames": 3, "peak_sigma": 1.2, "main_alpha": 0.88},
+        "balanced": {"grid": 0.15, "tint": 0.18, "glow_mul": 0.56, "hold_mul": 0.58, "frames": 5, "peak_sigma": 1.6, "main_alpha": 0.93},
+        "punchy": {"grid": 0.20, "tint": 0.25, "glow_mul": 0.74, "hold_mul": 0.74, "frames": 7, "peak_sigma": 2.0, "main_alpha": 0.98},
+    }[intensity_v]
+
+    grid_alpha = intensity_map["grid"]
+    tint_alpha = intensity_map["tint"]
+    glow_alpha = min(0.66, 0.08 + glow_knob * intensity_map["glow_mul"])
+    peak_alpha = min(0.72, 0.06 + hold_knob * intensity_map["hold_mul"])
+    top_alpha = min(0.52, peak_alpha * 0.72)
+    peak_frames = intensity_map["frames"]
+    peak_sigma = intensity_map["peak_sigma"]
+    main_alpha = intensity_map["main_alpha"]
+
+    lw = eq_w // 3
+    mw = eq_w // 3
+    hw = eq_w - lw - mw
+    q1, q2, q3 = eq_h // 4, eq_h // 2, (eq_h * 3) // 4
+
+    lines: list[str] = [
+        f"[{audio_label}]showfreqs=s={rw}x{rh}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.16:0.0[eqs_raw0]",
+    ]
+    if rw != eq_w or rh != eq_h:
+        lines.append(f"[eqs_raw0]scale={eq_w}:{eq_h}:flags=lanczos[eqs_raw]")
+    else:
+        lines.append("[eqs_raw0]null[eqs_raw]")
+
+    lines.extend(
+        [
+            f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba,drawbox=x=0:y={q1}:w={eq_w}:h=1:color=white@{grid_alpha:.3f}:t=fill,drawbox=x=0:y={q2}:w={eq_w}:h=1:color=white@{grid_alpha + 0.03:.3f}:t=fill,drawbox=x=0:y={q3}:w={eq_w}:h=1:color=white@{grid_alpha:.3f}:t=fill[eqs_grid]",
+            "[eqs_raw]split=4[eqs_main][eqs_glow_src][eqs_peak_src][eqs_tint_src]",
+            f"[eqs_glow_src]gblur=sigma=2.4:steps=1,colorchannelmixer=aa={glow_alpha:.3f}[eqs_glow]",
+            f"[eqs_peak_src]tmix=frames={peak_frames},gblur=sigma={peak_sigma:.2f}:steps=1,colorchannelmixer=aa={peak_alpha:.3f}[eqs_peak]",
+            f"[eqs_peak]gblur=sigma=0.9:steps=1,colorchannelmixer=aa={top_alpha:.3f}[eqs_top]",
+            "[eqs_tint_src]split=3[eqs_l0][eqs_m0][eqs_h0]",
+            f"[eqs_l0]crop=w={lw}:h={eq_h}:x=0:y=0,colorchannelmixer=rr=1.00:gg=0.87:bb=0.74:aa={tint_alpha:.3f}[eqs_l]",
+            f"[eqs_m0]crop=w={mw}:h={eq_h}:x={lw}:y=0,colorchannelmixer=rr=0.92:gg=0.96:bb=1.00:aa={tint_alpha:.3f}[eqs_m]",
+            f"[eqs_h0]crop=w={hw}:h={eq_h}:x={lw+mw}:y=0,colorchannelmixer=rr=0.74:gg=0.90:bb=1.00:aa={tint_alpha:.3f}[eqs_h]",
+            f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqs_t0]",
+            "[eqs_t0][eqs_l]overlay=0:0:format=auto[eqs_t1]",
+            f"[eqs_t1][eqs_m]overlay={lw}:0:format=auto[eqs_t2]",
+            f"[eqs_t2][eqs_h]overlay={lw+mw}:0:format=auto[eqs_tint]",
+            "[eqs_grid][eqs_peak]overlay=0:0:format=auto[eqs_c0]",
+            "[eqs_c0][eqs_glow]overlay=0:0:format=auto[eqs_c1]",
+            "[eqs_c1][eqs_tint]overlay=0:0:format=auto[eqs_c2]",
+            f"[eqs_main]colorchannelmixer=aa={main_alpha:.3f}[eqs_main_a]",
+            "[eqs_c2][eqs_main_a]overlay=0:0:format=auto[eqs_c3]",
+            "[eqs_c3][eqs_top]overlay=0:0:format=auto[eqs_c4]",
+            f"[eqs_c4]colorchannelmixer=aa={op:.3f}[eqs_comp]",
+            f"[{input_label}][eqs_comp]overlay={eq_x}:{eq_y}:format=auto[{output_label}]",
+        ]
+    )
+    return lines
+
+
 def build_filter_graph(
     *,
     title: str,
@@ -352,6 +515,17 @@ def build_filter_graph(
     reactive_glow: float,
     reactive_blur: float,
     reactive_shake: float,
+    eq_style: str,
+    eq_intensity: str,
+    eq_quality: str,
+    eq_peak_hold: float,
+    eq_glow: float,
+    eq_opacity: float,
+    bottom_band: str,
+    end_cta: str,
+    end_cta_text: str,
+    end_cta_duration: float,
+    end_cta_style: str,
     pulse_times: list[float],
     color_filter_chain: str,
     lut_path: Path | None,
@@ -417,6 +591,45 @@ def build_filter_graph(
 
     font_title_ff = ffmpeg_escape_path(font_title_path)
     font_body_ff = ffmpeg_escape_path(font_body_path)
+    eq_chain = ";".join(
+        _build_eq_chain(
+            eq_x=eq_x,
+            eq_y=eq_y,
+            eq_w=eq_w,
+            eq_h=eq_h,
+            audio_label="1:a",
+            input_label="base8c",
+            output_label="base10",
+            style=eq_style,
+            intensity=eq_intensity,
+            quality=eq_quality,
+            eq_peak_hold=eq_peak_hold,
+            eq_glow=eq_glow,
+            eq_opacity=eq_opacity,
+        )
+    )
+    bottom_band_chain = ";".join(
+        _build_bottom_band_chain(
+            input_label="bg4raw",
+            output_label="bg4",
+            bottom_band=bottom_band,
+            mood_bg_hex=mood_bg_hex,
+            point_hex=point_hex,
+        )
+    )
+    end_cta_chain = ";".join(
+        _build_end_cta_chain(
+            input_label="preout0",
+            output_label="preout",
+            font_body_ff=font_body_ff,
+            point_hex=point_hex,
+            end_cta=end_cta,
+            end_cta_text=end_cta_text,
+            end_cta_duration=end_cta_duration,
+            end_cta_style=end_cta_style,
+            dur=dur,
+        )
+    )
 
     chains = [
         "[0:v]split=2[cvsrc][bgsrc]",
@@ -428,7 +641,8 @@ def build_filter_graph(
         "[bg0]vignette=PI/4:0.72[bg1]",
         f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.06:t=fill[bg2]",
         f"[bg2]drawbox=x=0:y=0:w=1920:h=260:color=0x{mood_bg_hex}@0.45:t=fill[bg3]",
-        f"[bg3]drawbox=x=0:y=820:w=1920:h=260:color=0x{mood_bg_hex}@0.40:t=fill[bg4]",
+        f"[bg3]drawbox=x=0:y=820:w=1920:h=260:color=0x{mood_bg_hex}@0.40:t=fill[bg4raw]",
+        bottom_band_chain,
         f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=24:y=32:w=320:h=180:color=0x{point_hex}@0.44:t=fill,drawbox=x=1460:y=110:w=360:h=220:color=0x{point_hex}@0.23:t=fill,drawbox=x=26:y=900:w=540:h=140:color=0x{point_hex}@0.34:t=fill[bg_point0]",
         "[bg_point0]gblur=sigma=38[bg_point]",
         "[bg4][bg_point]overlay=0:0:format=auto[bg_core]",
@@ -519,10 +733,7 @@ def build_filter_graph(
         f"[base8]drawtext=fontfile='{font_body_ff}':text='EQUALIZER':x={eq_x}:y={eq_y-32}:fontsize=20:fontcolor=white@0.46[base8a]",
         f"[base8a]drawbox=x={eq_x}:y={eq_y-8}:w={eq_w}:h=1:color=white@0.18:t=fill[base8b]",
         f"[base8b]drawbox=x={eq_x}:y={eq_y}:w={eq_w}:h={eq_h}:color=white@0.05:t=fill[base8c]",
-        f"[1:a]showfreqs=s={eq_w}x{eq_h}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.18:0.0,split=2[eq_raw][eq_top]",
-        "[eq_raw]gblur=sigma=2.2:steps=1,colorchannelmixer=aa=0.30[eq_glow]",
-        f"[base8c][eq_glow]overlay={eq_x}:{eq_y}:format=auto[base9]",
-        f"[base9][eq_top]overlay={eq_x}:{eq_y}:format=auto[base10]",
+        eq_chain,
         f"[base10]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color=white@0.20:t=fill[bar_bg]",
         f"[bar_bg]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color=white@0.93:t=fill[bar_fill_full]",
         f"color=c=black@0.82:s={bar_w}x5[bar_mask]",
@@ -538,7 +749,8 @@ def build_filter_graph(
         f"[base14]drawtext=fontfile='{font_body_ff}':text='{total_e}':x='{bar_x}+{bar_w}-tw':y={time_y}:fontsize=24:fontcolor=white@0.70[base15]",
         f"[base15]drawtext=fontfile='{font_title_ff}':text='<<':x={prev_x}:y={controls_y}:fontsize=34:fontcolor=white@0.58[base16]",
         f"[base16]drawtext=fontfile='{font_title_ff}':text='PLAY':x={play_x}:y={controls_y+2}:fontsize=28:fontcolor=white@0.92[base17]",
-        f"[base17]drawtext=fontfile='{font_title_ff}':text='>>':x={next_x}:y={controls_y}:fontsize=34:fontcolor=white@0.58[preout]",
+        f"[base17]drawtext=fontfile='{font_title_ff}':text='>>':x={next_x}:y={controls_y}:fontsize=34:fontcolor=white@0.58[preout0]",
+        end_cta_chain,
         "[preout]setsar=1[vout]",
     ])
 
@@ -579,6 +791,17 @@ def main() -> int:
     ap.add_argument("--reactive-glow", type=float, default=0.45)
     ap.add_argument("--reactive-blur", type=float, default=0.22)
     ap.add_argument("--reactive-shake", type=float, default=0.18)
+    ap.add_argument("--eq-style", choices=("legacy", "studio"), default="legacy")
+    ap.add_argument("--eq-intensity", choices=("subtle", "balanced", "punchy"), default="balanced")
+    ap.add_argument("--eq-quality", choices=("low", "medium", "high"), default="medium")
+    ap.add_argument("--eq-peak-hold", type=float, default=0.55)
+    ap.add_argument("--eq-glow", type=float, default=0.38)
+    ap.add_argument("--eq-opacity", type=float, default=0.92)
+    ap.add_argument("--bottom-band", choices=("off", "subtle", "medium"), default="subtle")
+    ap.add_argument("--end-cta", choices=("on", "off"), default="on")
+    ap.add_argument("--end-cta-text", default="👍 Like & Subscribe")
+    ap.add_argument("--end-cta-duration", type=float, default=6.0)
+    ap.add_argument("--end-cta-style", choices=("clean",), default="clean")
     ap.add_argument("--color-preset", choices=("auto", "neutral", "cinema", "neon", "warm", "cool", "mono"), default="auto")
     ap.add_argument("--lut", default="")
     ap.add_argument("--lut-intensity", type=float, default=0.65)
@@ -593,7 +816,9 @@ def main() -> int:
             raise_user_error("INVALID_ARG", "--knob-scale must be > 0.")
         if args.min_cut_interval > args.max_cut_interval:
             raise_user_error("INVALID_ARG", "--min-cut-interval cannot exceed --max-cut-interval.")
-        for name in ("broll_opacity", "camera_strength", "reactive_level", "reactive_glow", "reactive_blur", "reactive_shake", "lut_intensity"):
+        if not (1.0 <= args.end_cta_duration <= 15.0):
+            raise_user_error("INVALID_ARG", "--end-cta-duration must be 1.0~15.0.")
+        for name in ("broll_opacity", "camera_strength", "reactive_level", "reactive_glow", "reactive_blur", "reactive_shake", "eq_peak_hold", "eq_glow", "eq_opacity", "lut_intensity"):
             if not (0.0 <= float(getattr(args, name)) <= 1.0):
                 raise_user_error("INVALID_ARG", f"--{name.replace('_', '-')} must be 0.0~1.0")
 
@@ -715,6 +940,17 @@ def main() -> int:
             reactive_glow=args.reactive_glow,
             reactive_blur=args.reactive_blur,
             reactive_shake=args.reactive_shake,
+            eq_style=args.eq_style,
+            eq_intensity=args.eq_intensity,
+            eq_quality=args.eq_quality,
+            eq_peak_hold=args.eq_peak_hold,
+            eq_glow=args.eq_glow,
+            eq_opacity=args.eq_opacity,
+            bottom_band=args.bottom_band,
+            end_cta=args.end_cta,
+            end_cta_text=args.end_cta_text,
+            end_cta_duration=args.end_cta_duration,
+            end_cta_style=args.end_cta_style,
             pulse_times=beat.get("pulse_times", []),
             color_filter_chain=color_filter,
             lut_path=lut_path,
@@ -757,6 +993,8 @@ def main() -> int:
         print(f"Beat cut    : {args.beat_cut} (cuts={len(beat.get('cut_times', []))})")
         print(f"Camera      : {args.camera_motion} ({args.camera_strength:.2f})")
         print(f"Reactive    : level={args.reactive_level:.2f} glow={args.reactive_glow:.2f} blur={args.reactive_blur:.2f} shake={args.reactive_shake:.2f}")
+        print(f"EQ          : {args.eq_style}/{args.eq_intensity}/{args.eq_quality} hold={args.eq_peak_hold:.2f} glow={args.eq_glow:.2f} op={args.eq_opacity:.2f}")
+        print(f"Bottom UI   : band={args.bottom_band} end-cta={args.end_cta} ({args.end_cta_duration:.1f}s)")
         print(f"Color       : {preset} (lut={lut_path if lut_path else 'none'})")
         print(f"Graph       : {graph_path}")
         print(f"Thumb       : {thumb_path} ({'generated' if thumb_generated else 'skipped'})")

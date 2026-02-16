@@ -78,6 +78,55 @@ python make_player_apple.py \
   --lut-intensity 0.55
 ```
 
+Professional EQ (Studio Analyzer):
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --eq-style studio \
+  --eq-intensity balanced \
+  --eq-quality medium
+```
+
+Punchier EQ:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --eq-style studio \
+  --eq-intensity punchy \
+  --eq-glow 0.55
+```
+
+Low-load EQ:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --eq-style studio \
+  --eq-intensity subtle \
+  --eq-quality low
+```
+
+End CTA Frame:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --end-cta on
+```
+
+End CTA off:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --end-cta off
+```
+
+Custom CTA text/duration:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --end-cta-text "👍 Like & Subscribe" \
+  --end-cta-duration 6
+```
+
 Title-only mode lookup
 If `--song` / `--cover` are omitted, the script searches by title base name.
 
@@ -99,6 +148,10 @@ Main options
 - `--min-cut-interval`, `--max-cut-interval`
 - `--camera-motion`, `--camera-strength`
 - `--reactive-level`, `--reactive-glow`, `--reactive-blur`, `--reactive-shake`
+- `--eq-style`, `--eq-intensity`, `--eq-quality`
+- `--eq-peak-hold`, `--eq-glow`, `--eq-opacity`
+- `--bottom-band`
+- `--end-cta`, `--end-cta-text`, `--end-cta-duration`, `--end-cta-style`
 - `--color-preset`, `--lut`, `--lut-intensity`
 - `--skip-thumbnail`
 
