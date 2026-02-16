@@ -325,31 +325,6 @@ def _append_motion_chain(chains: list[str], *, input_label: str, output_label: s
     chains.append(f"[{input_label}]null[{output_label}]")
 
 
-def _build_bottom_band_chain(
-    *,
-    input_label: str,
-    output_label: str,
-    bottom_band: str,
-    mood_bg_hex: str,
-    point_hex: str,
-) -> list[str]:
-    mode = (bottom_band or "subtle").strip().lower()
-    if mode == "off":
-        return [f"[{input_label}]null[{output_label}]"]
-
-    if mode == "medium":
-        a1, a2, a3, hi = 0.14, 0.19, 0.24, 0.16
-    else:
-        a1, a2, a3, hi = 0.10, 0.14, 0.18, 0.11
-
-    return [
-        f"[{input_label}]drawbox=x=0:y=840:w=1920:h=82:color=0x{mood_bg_hex}@{a1:.3f}:t=fill[bb1]",
-        f"[bb1]drawbox=x=0:y=922:w=1920:h=90:color=0x{mood_bg_hex}@{a2:.3f}:t=fill[bb2]",
-        f"[bb2]drawbox=x=0:y=1012:w=1920:h=68:color=0x{mood_bg_hex}@{a3:.3f}:t=fill[bb3]",
-        f"[bb3]drawbox=x=0:y=842:w=1920:h=2:color=0x{point_hex}@{hi:.3f}:t=fill[{output_label}]",
-    ]
-
-
 def _build_end_cta_chain(
     *,
     input_label: str,
@@ -540,7 +515,6 @@ def build_filter_graph(
     eq_peak_hold: float,
     eq_glow: float,
     eq_opacity: float,
-    bottom_band: str,
     end_cta: str,
     end_cta_text: str,
     end_cta_duration: float,
@@ -627,15 +601,6 @@ def build_filter_graph(
             eq_opacity=eq_opacity,
         )
     )
-    bottom_band_chain = ";".join(
-        _build_bottom_band_chain(
-            input_label="bg4raw",
-            output_label="bg4",
-            bottom_band=bottom_band,
-            mood_bg_hex=mood_bg_hex,
-            point_hex=point_hex,
-        )
-    )
     end_cta_chain = ";".join(
         _build_end_cta_chain(
             input_label="preout0",
@@ -660,8 +625,7 @@ def build_filter_graph(
         "[bg0]vignette=PI/4:0.72[bg1]",
         f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.06:t=fill[bg2]",
         f"[bg2]drawbox=x=0:y=0:w=1920:h=260:color=0x{mood_bg_hex}@0.45:t=fill[bg3]",
-        f"[bg3]drawbox=x=0:y=820:w=1920:h=260:color=0x{mood_bg_hex}@0.40:t=fill[bg4raw]",
-        bottom_band_chain,
+        f"[bg3]drawbox=x=0:y=820:w=1920:h=260:color=0x{mood_bg_hex}@0.40:t=fill[bg4]",
         f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=24:y=32:w=320:h=180:color=0x{point_hex}@0.44:t=fill,drawbox=x=1460:y=110:w=360:h=220:color=0x{point_hex}@0.23:t=fill,drawbox=x=26:y=900:w=540:h=140:color=0x{point_hex}@0.34:t=fill[bg_point0]",
         "[bg_point0]gblur=sigma=38[bg_point]",
         "[bg4][bg_point]overlay=0:0:format=auto[bg_core]",
@@ -816,7 +780,6 @@ def main() -> int:
     ap.add_argument("--eq-peak-hold", type=float, default=0.55)
     ap.add_argument("--eq-glow", type=float, default=0.38)
     ap.add_argument("--eq-opacity", type=float, default=0.92)
-    ap.add_argument("--bottom-band", choices=("off", "subtle", "medium"), default="subtle")
     ap.add_argument("--end-cta", choices=("on", "off"), default="on")
     ap.add_argument("--end-cta-text", default="Like & Subscribe")
     ap.add_argument("--end-cta-duration", type=float, default=6.0)
@@ -965,7 +928,6 @@ def main() -> int:
             eq_peak_hold=args.eq_peak_hold,
             eq_glow=args.eq_glow,
             eq_opacity=args.eq_opacity,
-            bottom_band=args.bottom_band,
             end_cta=args.end_cta,
             end_cta_text=args.end_cta_text,
             end_cta_duration=args.end_cta_duration,
@@ -1013,7 +975,7 @@ def main() -> int:
         print(f"Camera      : {args.camera_motion} ({args.camera_strength:.2f})")
         print(f"Reactive    : level={args.reactive_level:.2f} glow={args.reactive_glow:.2f} blur={args.reactive_blur:.2f} shake={args.reactive_shake:.2f}")
         print(f"EQ          : {args.eq_style}/{args.eq_intensity}/{args.eq_quality} hold={args.eq_peak_hold:.2f} glow={args.eq_glow:.2f} op={args.eq_opacity:.2f}")
-        print(f"Bottom UI   : band={args.bottom_band} end-cta={args.end_cta} {args.end_cta_style} ({args.end_cta_duration:.1f}s)")
+        print(f"End CTA     : {args.end_cta} {args.end_cta_style} ({args.end_cta_duration:.1f}s)")
         print(f"Color       : {preset} (lut={lut_path if lut_path else 'none'})")
         print(f"Graph       : {graph_path}")
         print(f"Thumb       : {thumb_path} ({'generated' if thumb_generated else 'skipped'})")

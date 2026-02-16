@@ -151,7 +151,6 @@ Main options
 - `--reactive-level`, `--reactive-glow`, `--reactive-blur`, `--reactive-shake`
 - `--eq-style`, `--eq-intensity`, `--eq-quality`
 - `--eq-peak-hold`, `--eq-glow`, `--eq-opacity`
-- `--bottom-band`
 - `--end-cta`, `--end-cta-text`, `--end-cta-duration`, `--end-cta-style`
 - `--color-preset`, `--lut`, `--lut-intensity`
 - `--skip-thumbnail`
