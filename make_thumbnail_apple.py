@@ -419,7 +419,7 @@ def main() -> int:
         title = args.title or cover.stem
         safe_title = sanitize_filename(title)
         outdir = Path(args.outdir).expanduser().resolve()
-        out_path = outdir / f"{safe_title}_youtube_thumb.jpg"
+        out_path = outdir / f"{safe_title}_apple_thumb.jpg"
 
         make_thumbnail(
             cover_path=cover,

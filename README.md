@@ -23,9 +23,9 @@ python make_player_apple.py --title "Midnight satellite" --artist "SUNO AI" --ge
 ```
 
 Generated files:
-- `output/Midnight satellite.mp4`
-- `output/Midnight satellite_youtube_thumb.jpg`
-- `output/Midnight satellite_filter.txt`
+- `output/Midnight satellite_apple.mp4`
+- `output/Midnight satellite_apple_thumb.jpg`
+- `output/Midnight satellite_apple_filter.txt`
 
 Usage
 

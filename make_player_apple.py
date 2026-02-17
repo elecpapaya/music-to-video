@@ -691,9 +691,9 @@ def main() -> int:
         outdir.mkdir(parents=True, exist_ok=True)
 
         safe_title = sanitize_filename(title)
-        out_path = outdir / f"{safe_title}.mp4"
-        thumb_path = outdir / f"{safe_title}_youtube_thumb.jpg"
-        graph_path = outdir / f"{safe_title}_filter.txt"
+        out_path = outdir / f"{safe_title}_apple.mp4"
+        thumb_path = outdir / f"{safe_title}_apple_thumb.jpg"
+        graph_path = outdir / f"{safe_title}_apple_filter.txt"
         stats_path = outdir / f"{safe_title}_astats.txt"
         quality = QUALITY_PRESETS[args.quality]
 
