@@ -4,7 +4,7 @@
 Generate a click-oriented YouTube thumbnail (1280x720) from a cover image.
 
 Usage:
-  python make_thumbnail_youtube.py --cover "cover.jpg" --title "Midnight whispers" --artist "Susan" --genre "K-POP"
+  python make_thumbnail_apple.py --cover "cover.jpg" --title "Midnight whispers" --artist "Susan" --genre "K-POP"
 """
 
 from __future__ import annotations

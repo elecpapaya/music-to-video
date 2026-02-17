@@ -157,7 +157,7 @@ Main options
 
 Standalone thumbnail script
 ```bash
-python make_thumbnail_youtube.py \
+python make_thumbnail_apple.py \
   --cover "cover.jpg" \
   --title "Song Title" \
   --artist "Artist Name" \
