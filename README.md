@@ -21,6 +21,7 @@ Quick Start
 ```bash
 python make_player_apple.py --title "Midnight satellite" --artist "SUNO AI" --genre "K-POP"
 ```
+Note: this command uses defaults. EQ default is `--eq-style legacy`, so prism-style color changes are not enabled unless you set `--eq-style prism`.
 
 Generated files:
 - `output/Midnight satellite_apple.mp4`
@@ -105,6 +106,37 @@ python make_player_apple.py \
   --eq-quality low
 ```
 
+Prism EQ (Apple, opt-in):
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --eq-style prism \
+  --eq-intensity balanced \
+  --eq-color-drive 0.55
+```
+
+Prism EQ (Glass, opt-in):
+```bash
+python make_player_glass.py \
+  --title "Midnight satellite" \
+  --eq-style prism \
+  --eq-color-drive 0.55
+```
+
+Note: `make_player_glass.py --eq-style prism` runs one extra audio analysis pass (`astats`) to drive beat-synced hue motion.
+
+Why EQ changes may look subtle
+- If you run without `--eq-style prism`, the script stays on `legacy` EQ.
+- Very low `--eq-color-drive` (for prism) can make color motion hard to notice.
+- Compare outputs with separate folders:
+```bash
+python make_player_apple.py --title "Midnight satellite" --eq-style legacy --outdir output/eq_legacy
+python make_player_apple.py --title "Midnight satellite" --eq-style prism --eq-color-drive 0.75 --eq-intensity punchy --outdir output/eq_prism
+```
+- In console logs, confirm:
+  - `EQ          : ... prism ... drive=...`
+  - `Analysis    : need=True reasons=prism_pulse`
+
 End CTA Frame:
 ```bash
 python make_player_apple.py \
@@ -150,7 +182,7 @@ Main options
 - `--camera-motion`, `--camera-strength`
 - `--reactive-level`, `--reactive-glow`, `--reactive-blur`, `--reactive-shake`
 - `--eq-style`, `--eq-intensity`, `--eq-quality`
-- `--eq-peak-hold`, `--eq-glow`, `--eq-opacity`
+- `--eq-peak-hold`, `--eq-glow`, `--eq-opacity`, `--eq-color-drive`
 - `--end-cta`, `--end-cta-text`, `--end-cta-duration`, `--end-cta-style`
 - `--color-preset`, `--lut`, `--lut-intensity`
 - `--skip-thumbnail`

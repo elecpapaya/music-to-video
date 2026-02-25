@@ -13,6 +13,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 from audio_reactive import analyze_audio_reactivity
 from color_presets import preset_filter_chain, resolve_color_preset
+from eq_visuals import (
+    EqPalette,
+    build_hue_expr,
+    build_pulse_enable_expr as shared_build_pulse_enable_expr,
+    clamp01,
+    get_eq_palette,
+    hex_to_rgbf,
+)
 from font_resolver import FontResolutionError, resolve_ffmpeg_font_paths, resolve_pillow_font_paths
 from make_thumbnail_apple import make_thumbnail
 from player_core import (
@@ -40,7 +48,7 @@ def _supported_exts_text(exts: list[str]) -> str:
 
 
 def _clamp01(v: float) -> float:
-    return max(0.0, min(1.0, v))
+    return clamp01(v)
 
 
 def _load_pillow_font(font_path: str | None, size: int) -> ImageFont.ImageFont:
@@ -160,14 +168,7 @@ def _prepare_broll_from_video(*, ffp: FFPaths, broll_video: Path, outdir: Path, 
 
 
 def _build_pulse_enable_expr(pulse_times: list[float], width: float = 0.16, max_terms: int = 42) -> str:
-    pts = sorted(set(round(float(x), 3) for x in pulse_times if x >= 0.0))
-    if not pts:
-        return "0"
-    terms = []
-    for p in pts[:max_terms]:
-        a, b = max(0.0, p - width * 0.35), p + width
-        terms.append(f"between(t\\,{a:.3f}\\,{b:.3f})")
-    return "+".join(terms) if terms else "0"
+    return shared_build_pulse_enable_expr(pulse_times, width=width, max_terms=max_terms)
 
 
 def _append_motion_chain(chains: list[str], *, input_label: str, output_label: str, mode: str, strength: float, factor: float = 1.0) -> None:
@@ -256,11 +257,16 @@ def _build_eq_chain(
     eq_peak_hold: float,
     eq_glow: float,
     eq_opacity: float,
+    eq_color_drive: float,
+    pulse_enable_expr: str,
+    palette: EqPalette,
 ) -> list[str]:
     style_v = (style or "legacy").strip().lower()
     intensity_v = (intensity or "balanced").strip().lower()
     quality_v = (quality or "medium").strip().lower()
 
+    if style_v not in ("legacy", "studio", "prism"):
+        style_v = "legacy"
     if intensity_v not in ("subtle", "balanced", "punchy"):
         intensity_v = "balanced"
     if quality_v not in ("low", "medium", "high"):
@@ -314,6 +320,63 @@ def _build_eq_chain(
     lines: list[str] = [
         f"[{audio_label}]showfreqs=s={rw}x{rh}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.16:0.0[eqs_raw0]",
     ]
+
+    if style_v == "prism":
+        drive = _clamp01(eq_color_drive)
+        tint_alpha = min(0.92, max(0.54, tint_alpha + 0.38 + drive * 0.28))
+        glow_alpha = min(0.78, max(0.24, glow_alpha + 0.14 + drive * 0.12))
+        peak_alpha = min(0.82, peak_alpha + drive * 0.08)
+        top_alpha = min(0.66, top_alpha + drive * 0.11)
+        prism_main_base = {"subtle": 0.46, "balanced": 0.34, "punchy": 0.24}[intensity_v]
+        main_alpha = max(0.14, prism_main_base - drive * 0.12)
+        hue_expr = build_hue_expr(
+            color_drive=drive,
+            pulse_enable_expr=pulse_enable_expr,
+            base_speed=palette.hue_speed,
+            base_depth=palette.hue_depth,
+            pulse_boost=palette.pulse_boost,
+        )
+        low_r, low_g, low_b = hex_to_rgbf(palette.low_hex)
+        mid_r, mid_g, mid_b = hex_to_rgbf(palette.mid_hex)
+        high_r, high_g, high_b = hex_to_rgbf(palette.high_hex)
+        grid_hex = palette.frame_hex
+
+        lines = [
+            f"[{audio_label}]showfreqs=s={rw}x{rh}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.16:0.0[eqp_raw0]",
+        ]
+        if rw != eq_w or rh != eq_h:
+            lines.append(f"[eqp_raw0]scale={eq_w}:{eq_h}:flags=lanczos[eqp_raw]")
+        else:
+            lines.append("[eqp_raw0]null[eqp_raw]")
+
+        lines.extend(
+            [
+                f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba,drawbox=x=0:y={q1}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha:.3f}:t=fill,drawbox=x=0:y={q2}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha + 0.03:.3f}:t=fill,drawbox=x=0:y={q3}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha:.3f}:t=fill[eqp_grid]",
+                "[eqp_raw]split=4[eqp_main][eqp_glow_src][eqp_peak_src][eqp_tint_src]",
+                f"[eqp_glow_src]gblur=sigma=2.5:steps=1,colorchannelmixer=aa={glow_alpha:.3f}[eqp_glow]",
+                f"[eqp_peak_src]tmix=frames={peak_frames},gblur=sigma={peak_sigma:.2f}:steps=1,colorchannelmixer=aa={peak_alpha:.3f}[eqp_peak]",
+                f"[eqp_peak]gblur=sigma=0.9:steps=1,colorchannelmixer=aa={top_alpha:.3f}[eqp_top]",
+                "[eqp_tint_src]split=3[eqp_l0][eqp_m0][eqp_h0]",
+                f"[eqp_l0]crop=w={lw}:h={eq_h}:x=0:y=0,colorchannelmixer=rr={low_r:.4f}:gg={low_g:.4f}:bb={low_b:.4f}:aa={tint_alpha:.3f}[eqp_l]",
+                f"[eqp_m0]crop=w={mw}:h={eq_h}:x={lw}:y=0,colorchannelmixer=rr={mid_r:.4f}:gg={mid_g:.4f}:bb={mid_b:.4f}:aa={tint_alpha:.3f}[eqp_m]",
+                f"[eqp_h0]crop=w={hw}:h={eq_h}:x={lw+mw}:y=0,colorchannelmixer=rr={high_r:.4f}:gg={high_g:.4f}:bb={high_b:.4f}:aa={tint_alpha:.3f}[eqp_h]",
+                f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqp_t0]",
+                "[eqp_t0][eqp_l]overlay=0:0:format=auto[eqp_t1]",
+                f"[eqp_t1][eqp_m]overlay={lw}:0:format=auto[eqp_t2]",
+                f"[eqp_t2][eqp_h]overlay={lw+mw}:0:format=auto[eqp_t3]",
+                f"[eqp_t3]hue=H='{hue_expr}':s=1.34[eqp_tint]",
+                "[eqp_grid][eqp_peak]overlay=0:0:format=auto[eqp_c0]",
+                "[eqp_c0][eqp_glow]overlay=0:0:format=auto[eqp_c1]",
+                "[eqp_c1][eqp_tint]overlay=0:0:format=auto[eqp_c2]",
+                f"[eqp_main]colorchannelmixer=aa={main_alpha:.3f}[eqp_main_a]",
+                "[eqp_c2][eqp_main_a]overlay=0:0:format=auto[eqp_c3]",
+                "[eqp_c3][eqp_top]overlay=0:0:format=auto[eqp_c4]",
+                f"[eqp_c4]colorchannelmixer=aa={op:.3f}[eqp_comp]",
+                f"[{input_label}][eqp_comp]overlay={eq_x}:{eq_y}:format=auto[{output_label}]",
+            ]
+        )
+        return lines
+
     if rw != eq_w or rh != eq_h:
         lines.append(f"[eqs_raw0]scale={eq_w}:{eq_h}:flags=lanczos[eqs_raw]")
     else:
@@ -380,6 +443,7 @@ def build_filter_graph(
     eq_peak_hold: float,
     eq_glow: float,
     eq_opacity: float,
+    eq_color_drive: float,
     end_cta: str,
     end_cta_text: str,
     end_cta_duration: float,
@@ -438,6 +502,20 @@ def build_filter_graph(
     k = _clamp01(float(motion_smooth))
     ps_expr = f"((1-{k:.6f})*{p_expr}+{k:.6f}*{s_expr})"
     progress_x_expr = f"({bar_x}+{bar_w}*{ps_expr})"
+    eq_style_v = (eq_style or "legacy").strip().lower()
+    is_eq_prism = eq_style_v == "prism"
+    eq_palette = get_eq_palette(eq_style_v, accent_hex=accent_hex, point_hex=point_hex)
+    pulse_enable = _build_pulse_enable_expr(pulse_times, width=0.16, max_terms=42)
+    pulse_gate = f"min(1\\,{pulse_enable})" if pulse_enable != "0" else "0"
+
+    eq_label_color = f"0x{eq_palette.label_hex}@0.66" if is_eq_prism else "white@0.46"
+    eq_rule_color = f"0x{eq_palette.frame_hex}@0.46" if is_eq_prism else "white@0.18"
+    eq_box_color = f"0x{eq_palette.frame_hex}@0.10" if is_eq_prism else "white@0.05"
+    eq_header_bar_color = f"0x{eq_palette.accent_hex}@0.92" if is_eq_prism else f"0x{accent_hex}@0.95"
+    bar_bg_color = f"0x{eq_palette.frame_hex}@0.24" if is_eq_prism else "white@0.20"
+    bar_fill_color = f"0x{eq_palette.progress_hex}@0.93" if is_eq_prism else "white@0.93"
+    knob_glow_color = f"0x{eq_palette.accent_hex}@0.36" if is_eq_prism else f"0x{accent_hex}@0.32"
+    knob_core_color = f"0x{eq_palette.knob_hex}@0.86" if is_eq_prism else f"0x{accent_hex}@0.82"
 
     ks = max(0.4, min(2.0, float(knob_scale)))
     gw, gh = max(10, int(round(24 * ks))), max(12, int(round(32 * ks)))
@@ -464,6 +542,9 @@ def build_filter_graph(
             eq_peak_hold=eq_peak_hold,
             eq_glow=eq_glow,
             eq_opacity=eq_opacity,
+            eq_color_drive=eq_color_drive,
+            pulse_enable_expr=pulse_enable,
+            palette=eq_palette,
         )
     )
     end_cta_chain = ";".join(
@@ -500,7 +581,7 @@ def build_filter_graph(
 
     mode = (broll_blend or "softlight").strip().lower()
     if broll_enabled:
-        chains.append("[2:v]scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,fps=30,format=rgba[broll_base]")
+        chains.append("[2:v]format=rgba[broll_base]")
         if camera_motion == "parallax":
             _append_motion_chain(chains, input_label="broll_base", output_label="broll_motion", mode="drift", strength=min(1.0, camera_strength * 1.25), factor=1.25)
         else:
@@ -532,8 +613,6 @@ def build_filter_graph(
         chains.append("[bg_color]null[bg_grade]")
 
     rl, rg, rb, rs = _clamp01(reactive_level), _clamp01(reactive_glow), _clamp01(reactive_blur), _clamp01(reactive_shake)
-    pulse_enable = _build_pulse_enable_expr(pulse_times, width=0.16, max_terms=42)
-    pulse_gate = f"min(1\\,{pulse_enable})" if pulse_enable != "0" else "0"
 
     if rl > 0.0001:
         glow_a = 0.04 + rl * rg * 0.30
@@ -577,21 +656,21 @@ def build_filter_graph(
         f"[base4]drawtext=fontfile='{font_title_ff}':text='NOW PLAYING':x={info_x+32}:y={info_y+28}:fontsize=25:fontcolor=white@0.62[base5]",
         f"[base5]drawtext=fontfile='{font_title_ff}':text='{title_e}':x={info_x+32}:y={title_y}:fontsize={title_size}:line_spacing={title_line_spacing}:fontcolor=white:borderw=2:bordercolor=black@0.28[base6]",
         f"[base6]drawtext=fontfile='{font_body_ff}':text='{artist_e}':x={info_x+32}:y={artist_y}:fontsize={artist_size}:fontcolor=white@0.82[base7]",
-        f"[base7]drawbox=x={info_x+32}:y={artist_y+86}:w=220:h=4:color=0x{accent_hex}@0.95:t=fill[base8]",
-        f"[base8]drawtext=fontfile='{font_body_ff}':text='EQUALIZER':x={eq_x}:y={eq_y-32}:fontsize=20:fontcolor=white@0.46[base8a]",
-        f"[base8a]drawbox=x={eq_x}:y={eq_y-8}:w={eq_w}:h=1:color=white@0.18:t=fill[base8b]",
-        f"[base8b]drawbox=x={eq_x}:y={eq_y}:w={eq_w}:h={eq_h}:color=white@0.05:t=fill[base8c]",
+        f"[base7]drawbox=x={info_x+32}:y={artist_y+86}:w=220:h=4:color={eq_header_bar_color}:t=fill[base8]",
+        f"[base8]drawtext=fontfile='{font_body_ff}':text='EQUALIZER':x={eq_x}:y={eq_y-32}:fontsize=20:fontcolor={eq_label_color}[base8a]",
+        f"[base8a]drawbox=x={eq_x}:y={eq_y-8}:w={eq_w}:h=1:color={eq_rule_color}:t=fill[base8b]",
+        f"[base8b]drawbox=x={eq_x}:y={eq_y}:w={eq_w}:h={eq_h}:color={eq_box_color}:t=fill[base8c]",
         eq_chain,
-        f"[base10]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color=white@0.20:t=fill[bar_bg]",
-        f"[bar_bg]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color=white@0.93:t=fill[bar_fill_full]",
+        f"[base10]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color={bar_bg_color}:t=fill[bar_bg]",
+        f"[bar_bg]drawbox=x={bar_x}:y={bar_y}:w={bar_w}:h=5:color={bar_fill_color}:t=fill[bar_fill_full]",
         f"color=c=black@0.82:s={bar_w}x5[bar_mask]",
         f"[bar_fill_full][bar_mask]overlay=x='{progress_x_expr}':y={bar_y}:eval=frame[bar_move]",
-        f"color=c=0x{accent_hex}@0.32:s={gw}x{gh}[bar_knob_glow_src]",
+        f"color=c={knob_glow_color}:s={gw}x{gh}[bar_knob_glow_src]",
         "[bar_knob_glow_src]gblur=sigma=2.2:steps=1[bar_knob_glow]",
         f"[bar_move][bar_knob_glow]overlay=x='{progress_x_expr}-{gdx}':y={bar_y-gdy}:eval=frame[bar_move2]",
         f"color=c=white@0.90:s={bw}x{bh}[bar_knob_body]",
         f"[bar_move2][bar_knob_body]overlay=x='{progress_x_expr}-{bdx}':y={bar_y-bdy}:eval=frame[bar_move3]",
-        f"color=c=0x{accent_hex}@0.82:s={cw}x{ch}[bar_knob_core]",
+        f"color=c={knob_core_color}:s={cw}x{ch}[bar_knob_core]",
         f"[bar_move3][bar_knob_core]overlay=x='{progress_x_expr}-{cdx}':y={bar_y-cdy}:eval=frame[base13]",
         f"[base13]drawtext=fontfile='{font_body_ff}':text='{elapsed_expr}':x={bar_x}:y={time_y}:fontsize=24:fontcolor=white@0.70[base14]",
         f"[base14]drawtext=fontfile='{font_body_ff}':text='{total_e}':x='{bar_x}+{bar_w}-tw':y={time_y}:fontsize=24:fontcolor=white@0.70[base15]",
@@ -639,12 +718,13 @@ def main() -> int:
     ap.add_argument("--reactive-glow", type=float, default=0.45)
     ap.add_argument("--reactive-blur", type=float, default=0.22)
     ap.add_argument("--reactive-shake", type=float, default=0.18)
-    ap.add_argument("--eq-style", choices=("legacy", "studio"), default="legacy")
+    ap.add_argument("--eq-style", choices=("legacy", "studio", "prism"), default="legacy")
     ap.add_argument("--eq-intensity", choices=("subtle", "balanced", "punchy"), default="balanced")
     ap.add_argument("--eq-quality", choices=("low", "medium", "high"), default="medium")
     ap.add_argument("--eq-peak-hold", type=float, default=0.55)
     ap.add_argument("--eq-glow", type=float, default=0.38)
     ap.add_argument("--eq-opacity", type=float, default=0.92)
+    ap.add_argument("--eq-color-drive", type=float, default=0.55)
     ap.add_argument("--end-cta", choices=("on", "off"), default="on")
     ap.add_argument("--end-cta-text", default="Like & Subscribe")
     ap.add_argument("--end-cta-duration", type=float, default=6.0)
@@ -665,7 +745,7 @@ def main() -> int:
             raise_user_error("INVALID_ARG", "--min-cut-interval cannot exceed --max-cut-interval.")
         if not (1.0 <= args.end_cta_duration <= 15.0):
             raise_user_error("INVALID_ARG", "--end-cta-duration must be 1.0~15.0.")
-        for name in ("broll_opacity", "camera_strength", "reactive_level", "reactive_glow", "reactive_blur", "reactive_shake", "eq_peak_hold", "eq_glow", "eq_opacity", "lut_intensity"):
+        for name in ("broll_opacity", "camera_strength", "reactive_level", "reactive_glow", "reactive_blur", "reactive_shake", "eq_peak_hold", "eq_glow", "eq_opacity", "eq_color_drive", "lut_intensity"):
             if not (0.0 <= float(getattr(args, name)) <= 1.0):
                 raise_user_error("INVALID_ARG", f"--{name.replace('_', '-')} must be 0.0~1.0")
 
@@ -697,7 +777,25 @@ def main() -> int:
         stats_path = outdir / f"{safe_title}_astats.txt"
         quality = QUALITY_PRESETS[args.quality]
 
-        need_analysis = args.reactive_level > 0.0 or args.beat_cut == "strict" or (args.beat_cut == "auto" and ((args.broll_dir or "").strip() or (args.broll_video or "").strip()))
+        eq_style_v = (args.eq_style or "legacy").strip().lower()
+        has_broll_input = bool((args.broll_dir or "").strip() or (args.broll_video or "").strip())
+        wants_prism_pulse = eq_style_v == "prism" and float(args.eq_color_drive) > 0.001
+        wants_reactive_pulse = float(args.reactive_level) > 0.0001 and (float(args.reactive_blur) > 0.0001 or float(args.reactive_shake) > 0.0001)
+        wants_beat_cuts = args.beat_cut == "strict" or (args.beat_cut == "auto" and has_broll_input)
+        need_analysis = wants_prism_pulse or wants_reactive_pulse or wants_beat_cuts
+        analysis_reasons: list[str] = []
+        if wants_prism_pulse:
+            analysis_reasons.append("prism_pulse")
+        if wants_reactive_pulse:
+            analysis_reasons.append("reactive_pulse")
+        if wants_beat_cuts:
+            analysis_reasons.append("beat_cuts")
+
+        if need_analysis:
+            print(f"[INFO] analysis: enabled (need_analysis=True, reasons={','.join(analysis_reasons)})")
+        else:
+            print("[INFO] analysis: skipped (need_analysis=False, reasons=none)")
+
         beat = {"cut_times": [], "pulse_times": []}
         if need_analysis:
             try:
@@ -793,6 +891,7 @@ def main() -> int:
             eq_peak_hold=args.eq_peak_hold,
             eq_glow=args.eq_glow,
             eq_opacity=args.eq_opacity,
+            eq_color_drive=args.eq_color_drive,
             end_cta=args.end_cta,
             end_cta_text=args.end_cta_text,
             end_cta_duration=args.end_cta_duration,
@@ -837,9 +936,13 @@ def main() -> int:
         if broll_concat:
             print(f"B-roll map  : {broll_concat}")
         print(f"Beat cut    : {args.beat_cut} (cuts={len(beat.get('cut_times', []))})")
+        print(f"Analysis    : need={need_analysis} reasons={','.join(analysis_reasons) if analysis_reasons else 'none'}")
         print(f"Camera      : {args.camera_motion} ({args.camera_strength:.2f})")
         print(f"Reactive    : level={args.reactive_level:.2f} glow={args.reactive_glow:.2f} blur={args.reactive_blur:.2f} shake={args.reactive_shake:.2f}")
-        print(f"EQ          : {args.eq_style}/{args.eq_intensity}/{args.eq_quality} hold={args.eq_peak_hold:.2f} glow={args.eq_glow:.2f} op={args.eq_opacity:.2f}")
+        print(
+            f"EQ          : {args.eq_style}/{args.eq_intensity}/{args.eq_quality} "
+            f"hold={args.eq_peak_hold:.2f} glow={args.eq_glow:.2f} op={args.eq_opacity:.2f} drive={args.eq_color_drive:.2f}"
+        )
         print(f"End CTA     : {args.end_cta} {args.end_cta_style} ({args.end_cta_duration:.1f}s)")
         print(f"Color       : {preset} (lut={lut_path if lut_path else 'none'})")
         print(f"Graph       : {graph_path}")

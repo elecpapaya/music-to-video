@@ -127,6 +127,17 @@ def cover_palette(cover: Image.Image) -> tuple[tuple[int, int, int], tuple[int, 
     return accent_rgb, deep_rgb
 
 
+def _region_luma(img: Image.Image, box: tuple[int, int, int, int]) -> float:
+    x0, y0, x1, y1 = box
+    x0 = max(0, min(img.width - 1, int(x0)))
+    y0 = max(0, min(img.height - 1, int(y0)))
+    x1 = max(x0 + 1, min(img.width, int(x1)))
+    y1 = max(y0 + 1, min(img.height, int(y1)))
+    sample = img.convert("RGB").crop((x0, y0, x1, y1)).resize((96, 96), Image.Resampling.LANCZOS)
+    sr, sg, sb = (v / 255.0 for v in ImageStat.Stat(sample).mean[:3])
+    return (0.2126 * sr) + (0.7152 * sg) + (0.0722 * sb)
+
+
 def draw_multiline_with_stroke(
     draw: ImageDraw.ImageDraw,
     lines: list[str],
@@ -189,13 +200,21 @@ def make_thumbnail(
     bg = ImageEnhance.Brightness(bg).enhance(0.46)
     bg = ImageEnhance.Contrast(bg).enhance(1.12)
     bg = ImageEnhance.Color(bg).enhance(0.86)
+    text_luma = _region_luma(bg, (SAFE_LEFT, SAFE_TOP + 70, SAFE_RIGHT, SAFE_BOTTOM - 24))
+    readability_boost = max(0.0, min(1.0, (text_luma - 0.30) / 0.45))
+    left_gradient_peak = min(255, int(225 + (52 * readability_boost)))
+    glass_fill_alpha = min(255, int(GLASS_FILL_ALPHA + (72 * readability_boost)))
+    glass_outline_alpha = min(255, int(GLASS_OUTLINE_ALPHA + (32 * readability_boost)))
+    title_stroke_alpha = min(255, int(176 + (54 * readability_boost)))
+    artist_box_alpha = min(255, int(132 + (52 * readability_boost)))
+    tagline_alpha = min(255, int(215 + (24 * readability_boost)))
     canvas = bg.convert("RGBA")
 
     overlay = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
     for x in range(THUMB_W):
         t = x / (THUMB_W - 1)
-        alpha = int(225 * ((1.0 - t) ** 1.55))
+        alpha = int(left_gradient_peak * ((1.0 - t) ** 1.55))
         odraw.line([(x, 0), (x, THUMB_H)], fill=(0, 0, 0, alpha), width=1)
     odraw.rectangle((0, 0, THUMB_W, 145), fill=(*deep, 116))
     odraw.rectangle((0, THUMB_H - 170, THUMB_W, THUMB_H), fill=(0, 0, 0, 168))
@@ -205,6 +224,12 @@ def make_thumbnail(
     gdraw.ellipse((730, 30, 1260, 560), fill=(*accent, 88))
     glow = glow.filter(ImageFilter.GaussianBlur(radius=62))
     overlay = Image.alpha_composite(overlay, glow)
+    streak = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(streak)
+    sdraw.polygon([(650, 46), (1060, 22), (1226, 208), (774, 230)], fill=(*accent, 88))
+    sdraw.polygon([(570, 540), (984, 474), (1090, 614), (650, 688)], fill=(*accent, 46))
+    streak = streak.filter(ImageFilter.GaussianBlur(radius=28))
+    overlay = Image.alpha_composite(overlay, streak)
     odraw.rectangle((0, 0, THUMB_W, THUMB_H), outline=(*accent, 26), width=2)
     canvas = Image.alpha_composite(canvas, overlay)
 
@@ -280,7 +305,7 @@ def make_thumbnail(
     title_block_bottom = title_probe_y
     artist_font = _load_font(font_body_path, 44)
     artist_text = truncate_with_ellipsis(draw, artist, artist_font, title_area_w - 14)
-    artist_y = min(title_block_bottom + 14, SAFE_BOTTOM - (90 if tagline.strip() else 50))
+    artist_y = SAFE_BOTTOM - (90 if tagline.strip() else 50)
 
     text_bottom = artist_y + 50
     if tagline.strip():
@@ -301,8 +326,8 @@ def make_thumbnail(
         gldraw.rounded_rectangle(
             (gx0, gy0, gx1, gy1),
             radius=20,
-            fill=(0, 0, 0, GLASS_FILL_ALPHA),
-            outline=(255, 255, 255, GLASS_OUTLINE_ALPHA),
+            fill=(0, 0, 0, glass_fill_alpha),
+            outline=(255, 255, 255, glass_outline_alpha),
             width=1,
         )
         glass = glass.filter(ImageFilter.GaussianBlur(radius=GLASS_BLUR_RADIUS))
@@ -327,16 +352,24 @@ def make_thumbnail(
         y=title_y,
         font=title_font,
         fill=(255, 255, 255, 255),
-        stroke_fill=(0, 0, 0, 176),
+        stroke_fill=(0, 0, 0, title_stroke_alpha),
         stroke_width=4,
         line_gap=line_gap,
     )
 
-    artist_y = min(next_y + 14, SAFE_BOTTOM - (90 if tagline.strip() else 50))
+    underline_y = min(next_y + 6, SAFE_BOTTOM - 118)
+    underline_w = int(max(120, min(title_area_w - 42, title_area_w * (0.52 - (0.12 * readability_boost)))))
+    draw.rounded_rectangle(
+        (title_area_x, underline_y, title_area_x + underline_w, underline_y + 8),
+        radius=4,
+        fill=(*accent, 170),
+    )
+
+    artist_y = SAFE_BOTTOM - (90 if tagline.strip() else 50)
     draw.rounded_rectangle(
         (title_area_x - 2, artist_y - 8, title_area_x + draw.textlength(artist_text, font=artist_font) + 20, artist_y + 50),
         radius=13,
-        fill=(0, 0, 0, 132),
+        fill=(0, 0, 0, artist_box_alpha),
     )
     draw.text((title_area_x + 8, artist_y), artist_text, font=artist_font, fill=(255, 255, 255, 236))
 
@@ -345,7 +378,7 @@ def make_thumbnail(
         tagline_text = truncate_with_ellipsis(draw, tagline.strip(), body_font, title_area_w)
         tagline_y = artist_y + 64
         if tagline_y <= SAFE_BOTTOM - 22 and title_area_x < TS_BLOCK_X:
-            draw.text((title_area_x, tagline_y), tagline_text, font=body_font, fill=(226, 226, 226, 215))
+            draw.text((title_area_x, tagline_y), tagline_text, font=body_font, fill=(226, 226, 226, tagline_alpha))
 
     play_cx, play_cy = 1166, 648
     play_r = 39

@@ -106,6 +106,17 @@ def _cover_palette(cover: Image.Image) -> tuple[tuple[int, int, int], tuple[int,
     )
 
 
+def _region_luma(img: Image.Image, box: tuple[int, int, int, int]) -> float:
+    x0, y0, x1, y1 = box
+    x0 = max(0, min(img.width - 1, int(x0)))
+    y0 = max(0, min(img.height - 1, int(y0)))
+    x1 = max(x0 + 1, min(img.width, int(x1)))
+    y1 = max(y0 + 1, min(img.height, int(y1)))
+    sample = img.convert("RGB").crop((x0, y0, x1, y1)).resize((96, 96), Image.Resampling.LANCZOS)
+    sr, sg, sb = (v / 255.0 for v in ImageStat.Stat(sample).mean[:3])
+    return (0.2126 * sr) + (0.7152 * sg) + (0.0722 * sb)
+
+
 def make_thumbnail(
     *,
     cover_path: Path,
@@ -128,6 +139,13 @@ def make_thumbnail(
     bg = ImageEnhance.Brightness(bg).enhance(0.40)
     bg = ImageEnhance.Contrast(bg).enhance(1.14)
     bg = ImageEnhance.Color(bg).enhance(0.76)
+    text_luma = _region_luma(bg, (SAFE_LEFT, SAFE_TOP + 40, SAFE_RIGHT, SAFE_BOTTOM - 20))
+    readability_boost = max(0.0, min(1.0, (text_luma - 0.28) / 0.46))
+    left_gradient_peak = min(255, int(196 + (56 * readability_boost)))
+    panel_fill_alpha = min(255, int(92 + (70 * readability_boost)))
+    panel_header_alpha = min(255, int(22 + (26 * readability_boost)))
+    title_stroke_alpha = min(255, int(170 + (58 * readability_boost)))
+    artist_box_alpha = min(255, int(132 + (50 * readability_boost)))
     canvas = bg.convert("RGBA")
 
     overlay = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
@@ -135,7 +153,7 @@ def make_thumbnail(
 
     for x in range(THUMB_W):
         t = x / max(1, THUMB_W - 1)
-        alpha = int(196 * ((1.0 - t) ** 1.46))
+        alpha = int(left_gradient_peak * ((1.0 - t) ** 1.46))
         od.line([(x, 0), (x, THUMB_H)], fill=(0, 0, 0, alpha), width=1)
 
     od.rectangle((0, 0, THUMB_W, 166), fill=(*deep, 112))
@@ -149,6 +167,12 @@ def make_thumbnail(
     gd.ellipse((20, 120, 360, 460), fill=(*accent, 26))
     glow = glow.filter(ImageFilter.GaussianBlur(radius=62))
     overlay = Image.alpha_composite(overlay, glow)
+    streak = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(streak)
+    sd.polygon([(742, 40), (1200, 70), (1280, 204), (802, 176)], fill=(*accent, 84))
+    sd.polygon([(704, 500), (1126, 432), (1218, 562), (778, 630)], fill=(*accent, 44))
+    streak = streak.filter(ImageFilter.GaussianBlur(radius=25))
+    overlay = Image.alpha_composite(overlay, streak)
     canvas = Image.alpha_composite(canvas, overlay)
 
     draw = ImageDraw.Draw(canvas)
@@ -194,14 +218,14 @@ def make_thumbnail(
     gdraw.rounded_rectangle(
         (panel_x0, panel_y0, panel_x1, panel_y1),
         radius=28,
-        fill=(11, 16, 30, 92),
+        fill=(11, 16, 30, panel_fill_alpha),
         outline=(255, 255, 255, 46),
         width=1,
     )
     gdraw.rounded_rectangle(
         (panel_x0 + 1, panel_y0 + 1, panel_x1 - 1, panel_y0 + 80),
         radius=28,
-        fill=(255, 255, 255, 22),
+        fill=(255, 255, 255, panel_header_alpha),
     )
     gdraw.line([(panel_x0 + 1, panel_y0 + 82), (panel_x1 - 1, panel_y0 + 82)], fill=(255, 255, 255, 34), width=1)
     panel = panel.filter(ImageFilter.GaussianBlur(radius=6))
@@ -262,7 +286,7 @@ def make_thumbnail(
     y = title_y
     for line in wrapped:
         draw.text((title_area_x + 3, y + 4), line, font=title_font, fill=(*accent, 160))
-        draw.text((title_area_x, y), line, font=title_font, fill=(255, 255, 255, 252), stroke_width=4, stroke_fill=(0, 0, 0, 170))
+        draw.text((title_area_x, y), line, font=title_font, fill=(255, 255, 255, 252), stroke_width=4, stroke_fill=(0, 0, 0, title_stroke_alpha))
         line_bb = draw.textbbox((title_area_x, y), line if line else "Ag", font=title_font, stroke_width=4)
         y = line_bb[3] + line_gap
 
@@ -274,12 +298,12 @@ def make_thumbnail(
         min_size=24,
         max_width=title_area_w - 12,
     )
-    artist_y = min(y + 14, meta_anchor_y)
+    artist_y = meta_anchor_y
     artist_box_w = int(draw.textlength(artist_text, font=artist_font)) + 56
     draw.rounded_rectangle(
         (title_area_x - 2, artist_y - 8, title_area_x + artist_box_w, artist_y + 52),
         radius=13,
-        fill=(0, 0, 0, 132),
+        fill=(0, 0, 0, artist_box_alpha),
     )
     dot_x = title_area_x + 16
     dot_y = artist_y + 20
