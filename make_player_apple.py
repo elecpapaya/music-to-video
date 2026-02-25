@@ -19,7 +19,6 @@ from eq_visuals import (
     build_pulse_enable_expr as shared_build_pulse_enable_expr,
     clamp01,
     get_eq_palette,
-    hex_to_rgbf,
 )
 from font_resolver import FontResolutionError, resolve_ffmpeg_font_paths, resolve_pillow_font_paths
 from make_thumbnail_apple import make_thumbnail
@@ -298,23 +297,19 @@ def _build_eq_chain(
         rw, rh = eq_w, eq_h
 
     intensity_map = {
-        "subtle": {"grid": 0.11, "tint": 0.12, "glow_mul": 0.42, "hold_mul": 0.44, "frames": 3, "peak_sigma": 1.2, "main_alpha": 0.88},
-        "balanced": {"grid": 0.15, "tint": 0.18, "glow_mul": 0.56, "hold_mul": 0.58, "frames": 5, "peak_sigma": 1.6, "main_alpha": 0.93},
-        "punchy": {"grid": 0.20, "tint": 0.25, "glow_mul": 0.74, "hold_mul": 0.74, "frames": 7, "peak_sigma": 2.0, "main_alpha": 0.98},
+        "subtle": {"grid": 0.11, "glow_mul": 0.42, "hold_mul": 0.44, "frames": 3, "peak_sigma": 1.2, "main_alpha": 0.90},
+        "balanced": {"grid": 0.15, "glow_mul": 0.56, "hold_mul": 0.58, "frames": 5, "peak_sigma": 1.6, "main_alpha": 0.95},
+        "punchy": {"grid": 0.20, "glow_mul": 0.74, "hold_mul": 0.74, "frames": 7, "peak_sigma": 2.0, "main_alpha": 1.00},
     }[intensity_v]
 
     grid_alpha = intensity_map["grid"]
-    tint_alpha = intensity_map["tint"]
-    glow_alpha = min(0.66, 0.08 + glow_knob * intensity_map["glow_mul"])
-    peak_alpha = min(0.72, 0.06 + hold_knob * intensity_map["hold_mul"])
-    top_alpha = min(0.52, peak_alpha * 0.72)
+    glow_alpha = min(0.82, 0.16 + glow_knob * (intensity_map["glow_mul"] + 0.18))
+    peak_alpha = min(0.80, 0.10 + hold_knob * (intensity_map["hold_mul"] + 0.08))
+    top_alpha = min(0.62, peak_alpha * 0.78)
     peak_frames = intensity_map["frames"]
     peak_sigma = intensity_map["peak_sigma"]
     main_alpha = intensity_map["main_alpha"]
 
-    lw = eq_w // 3
-    mw = eq_w // 3
-    hw = eq_w - lw - mw
     q1, q2, q3 = eq_h // 4, eq_h // 2, (eq_h * 3) // 4
 
     lines: list[str] = [
@@ -323,12 +318,11 @@ def _build_eq_chain(
 
     if style_v == "prism":
         drive = _clamp01(eq_color_drive)
-        tint_alpha = min(0.92, max(0.54, tint_alpha + 0.38 + drive * 0.28))
-        glow_alpha = min(0.78, max(0.24, glow_alpha + 0.14 + drive * 0.12))
-        peak_alpha = min(0.82, peak_alpha + drive * 0.08)
-        top_alpha = min(0.66, top_alpha + drive * 0.11)
-        prism_main_base = {"subtle": 0.46, "balanced": 0.34, "punchy": 0.24}[intensity_v]
-        main_alpha = max(0.14, prism_main_base - drive * 0.12)
+        glow_alpha = min(0.92, max(0.34, glow_alpha + 0.18 + drive * 0.16))
+        peak_alpha = min(0.88, peak_alpha + drive * 0.10)
+        top_alpha = min(0.72, top_alpha + drive * 0.14)
+        prism_main_base = {"subtle": 0.64, "balanced": 0.52, "punchy": 0.42}[intensity_v]
+        main_alpha = max(0.26, prism_main_base - drive * 0.08)
         hue_expr = build_hue_expr(
             color_drive=drive,
             pulse_enable_expr=pulse_enable_expr,
@@ -336,9 +330,6 @@ def _build_eq_chain(
             base_depth=palette.hue_depth,
             pulse_boost=palette.pulse_boost,
         )
-        low_r, low_g, low_b = hex_to_rgbf(palette.low_hex)
-        mid_r, mid_g, mid_b = hex_to_rgbf(palette.mid_hex)
-        high_r, high_g, high_b = hex_to_rgbf(palette.high_hex)
         grid_hex = palette.frame_hex
 
         lines = [
@@ -352,26 +343,16 @@ def _build_eq_chain(
         lines.extend(
             [
                 f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba,drawbox=x=0:y={q1}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha:.3f}:t=fill,drawbox=x=0:y={q2}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha + 0.03:.3f}:t=fill,drawbox=x=0:y={q3}:w={eq_w}:h=1:color=0x{grid_hex}@{grid_alpha:.3f}:t=fill[eqp_grid]",
-                "[eqp_raw]split=4[eqp_main][eqp_glow_src][eqp_peak_src][eqp_tint_src]",
-                f"[eqp_glow_src]gblur=sigma=2.5:steps=1,colorchannelmixer=aa={glow_alpha:.3f}[eqp_glow]",
+                "[eqp_raw]split=3[eqp_main][eqp_glow_src][eqp_peak_src]",
+                f"[eqp_glow_src]gblur=sigma=2.5:steps=1,hue=H='{hue_expr}':s=1.32,colorchannelmixer=aa={glow_alpha:.3f}[eqp_glow]",
                 f"[eqp_peak_src]tmix=frames={peak_frames},gblur=sigma={peak_sigma:.2f}:steps=1,colorchannelmixer=aa={peak_alpha:.3f}[eqp_peak]",
                 f"[eqp_peak]gblur=sigma=0.9:steps=1,colorchannelmixer=aa={top_alpha:.3f}[eqp_top]",
-                "[eqp_tint_src]split=3[eqp_l0][eqp_m0][eqp_h0]",
-                f"[eqp_l0]crop=w={lw}:h={eq_h}:x=0:y=0,colorchannelmixer=rr={low_r:.4f}:gg={low_g:.4f}:bb={low_b:.4f}:aa={tint_alpha:.3f}[eqp_l]",
-                f"[eqp_m0]crop=w={mw}:h={eq_h}:x={lw}:y=0,colorchannelmixer=rr={mid_r:.4f}:gg={mid_g:.4f}:bb={mid_b:.4f}:aa={tint_alpha:.3f}[eqp_m]",
-                f"[eqp_h0]crop=w={hw}:h={eq_h}:x={lw+mw}:y=0,colorchannelmixer=rr={high_r:.4f}:gg={high_g:.4f}:bb={high_b:.4f}:aa={tint_alpha:.3f}[eqp_h]",
-                f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqp_t0]",
-                "[eqp_t0][eqp_l]overlay=0:0:format=auto[eqp_t1]",
-                f"[eqp_t1][eqp_m]overlay={lw}:0:format=auto[eqp_t2]",
-                f"[eqp_t2][eqp_h]overlay={lw+mw}:0:format=auto[eqp_t3]",
-                f"[eqp_t3]hue=H='{hue_expr}':s=1.34[eqp_tint]",
                 "[eqp_grid][eqp_peak]overlay=0:0:format=auto[eqp_c0]",
                 "[eqp_c0][eqp_glow]overlay=0:0:format=auto[eqp_c1]",
-                "[eqp_c1][eqp_tint]overlay=0:0:format=auto[eqp_c2]",
                 f"[eqp_main]colorchannelmixer=aa={main_alpha:.3f}[eqp_main_a]",
-                "[eqp_c2][eqp_main_a]overlay=0:0:format=auto[eqp_c3]",
-                "[eqp_c3][eqp_top]overlay=0:0:format=auto[eqp_c4]",
-                f"[eqp_c4]colorchannelmixer=aa={op:.3f}[eqp_comp]",
+                "[eqp_c1][eqp_main_a]overlay=0:0:format=auto[eqp_c2]",
+                "[eqp_c2][eqp_top]overlay=0:0:format=auto[eqp_c3]",
+                f"[eqp_c3]colorchannelmixer=aa={op:.3f}[eqp_comp]",
                 f"[{input_label}][eqp_comp]overlay={eq_x}:{eq_y}:format=auto[{output_label}]",
             ]
         )
@@ -385,25 +366,16 @@ def _build_eq_chain(
     lines.extend(
         [
             f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba,drawbox=x=0:y={q1}:w={eq_w}:h=1:color=white@{grid_alpha:.3f}:t=fill,drawbox=x=0:y={q2}:w={eq_w}:h=1:color=white@{grid_alpha + 0.03:.3f}:t=fill,drawbox=x=0:y={q3}:w={eq_w}:h=1:color=white@{grid_alpha:.3f}:t=fill[eqs_grid]",
-            "[eqs_raw]split=4[eqs_main][eqs_glow_src][eqs_peak_src][eqs_tint_src]",
+            "[eqs_raw]split=3[eqs_main][eqs_glow_src][eqs_peak_src]",
             f"[eqs_glow_src]gblur=sigma=2.4:steps=1,colorchannelmixer=aa={glow_alpha:.3f}[eqs_glow]",
             f"[eqs_peak_src]tmix=frames={peak_frames},gblur=sigma={peak_sigma:.2f}:steps=1,colorchannelmixer=aa={peak_alpha:.3f}[eqs_peak]",
             f"[eqs_peak]gblur=sigma=0.9:steps=1,colorchannelmixer=aa={top_alpha:.3f}[eqs_top]",
-            "[eqs_tint_src]split=3[eqs_l0][eqs_m0][eqs_h0]",
-            f"[eqs_l0]crop=w={lw}:h={eq_h}:x=0:y=0,colorchannelmixer=rr=1.00:gg=0.87:bb=0.74:aa={tint_alpha:.3f}[eqs_l]",
-            f"[eqs_m0]crop=w={mw}:h={eq_h}:x={lw}:y=0,colorchannelmixer=rr=0.92:gg=0.96:bb=1.00:aa={tint_alpha:.3f}[eqs_m]",
-            f"[eqs_h0]crop=w={hw}:h={eq_h}:x={lw+mw}:y=0,colorchannelmixer=rr=0.74:gg=0.90:bb=1.00:aa={tint_alpha:.3f}[eqs_h]",
-            f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqs_t0]",
-            "[eqs_t0][eqs_l]overlay=0:0:format=auto[eqs_t1]",
-            f"[eqs_t1][eqs_m]overlay={lw}:0:format=auto[eqs_t2]",
-            f"[eqs_t2][eqs_h]overlay={lw+mw}:0:format=auto[eqs_tint]",
             "[eqs_grid][eqs_peak]overlay=0:0:format=auto[eqs_c0]",
             "[eqs_c0][eqs_glow]overlay=0:0:format=auto[eqs_c1]",
-            "[eqs_c1][eqs_tint]overlay=0:0:format=auto[eqs_c2]",
             f"[eqs_main]colorchannelmixer=aa={main_alpha:.3f}[eqs_main_a]",
-            "[eqs_c2][eqs_main_a]overlay=0:0:format=auto[eqs_c3]",
-            "[eqs_c3][eqs_top]overlay=0:0:format=auto[eqs_c4]",
-            f"[eqs_c4]colorchannelmixer=aa={op:.3f}[eqs_comp]",
+            "[eqs_c1][eqs_main_a]overlay=0:0:format=auto[eqs_c2]",
+            "[eqs_c2][eqs_top]overlay=0:0:format=auto[eqs_c3]",
+            f"[eqs_c3]colorchannelmixer=aa={op:.3f}[eqs_comp]",
             f"[{input_label}][eqs_comp]overlay={eq_x}:{eq_y}:format=auto[{output_label}]",
         ]
     )
@@ -564,12 +536,13 @@ def build_filter_graph(
     chains = [
         "[0:v]split=2[cvsrc][bgsrc]",
         "[bgsrc]scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,format=rgba[bg_norm]",
-        "[bg_norm]gblur=sigma=34,eq=brightness=-0.50:contrast=1.10:saturation=0.92[bg_blur]",
-        "[bg_norm]gblur=sigma=58,eq=brightness=-0.30:contrast=1.02:saturation=1.25,colorchannelmixer=aa=0.22[bg_tint0]",
-        f"[bg_tint0]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.16:t=fill[bg_tint]",
+        "[bg_norm]gblur=sigma=34,eq=brightness=-0.58:contrast=1.08:saturation=0.84[bg_blur]",
+        "[bg_norm]gblur=sigma=58,eq=brightness=-0.42:contrast=1.00:saturation=0.94,colorchannelmixer=aa=0.18[bg_tint0]",
+        f"[bg_tint0]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.10:t=fill[bg_tint]",
         "[bg_blur][bg_tint]overlay=0:0:format=auto[bg0]",
-        "[bg0]vignette=PI/4:0.72[bg1]",
-        f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.06:t=fill[bg2]",
+        "[bg0]drawbox=x=0:y=0:w=1920:h=1080:color=black@0.12:t=fill[bg0d]",
+        "[bg0d]vignette=PI/4:0.76[bg1]",
+        f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.04:t=fill[bg2]",
         f"[bg2]drawbox=x=0:y=0:w=1920:h=260:color=0x{mood_bg_hex}@0.45:t=fill[bg3]",
         f"[bg3]drawbox=x=0:y=820:w=1920:h=260:color=0x{mood_bg_hex}@0.40:t=fill[bg4]",
         f"color=c=black@0.0:s=1920x1080,format=rgba,drawbox=x=24:y=32:w=320:h=180:color=0x{point_hex}@0.44:t=fill,drawbox=x=1460:y=110:w=360:h=220:color=0x{point_hex}@0.23:t=fill,drawbox=x=26:y=900:w=540:h=140:color=0x{point_hex}@0.34:t=fill[bg_point0]",

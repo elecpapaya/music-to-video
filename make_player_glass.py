@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from audio_reactive import analyze_audio_reactivity
 from color_presets import preset_filter_chain, resolve_color_preset
-from eq_visuals import EqPalette, build_hue_expr, build_pulse_enable_expr, clamp01, get_eq_palette, hex_to_rgbf
+from eq_visuals import EqPalette, build_hue_expr, build_pulse_enable_expr, clamp01, get_eq_palette
 from font_resolver import FontResolutionError, resolve_ffmpeg_font_paths, resolve_pillow_font_paths
 from make_thumbnail_glass import make_thumbnail
 from player_core import (
@@ -93,7 +93,7 @@ def _build_eq_panel_chain(
     style_v = (eq_style or "legacy").strip().lower()
     rl = _clamp01(reactive_level)
     rg = _clamp01(reactive_glow)
-    eq_alpha = min(0.48, 0.18 + rl * 0.22 + rg * 0.08)
+    eq_alpha = min(0.62, 0.24 + rl * 0.28 + rg * 0.12)
 
     if style_v != "prism":
         return [
@@ -107,12 +107,8 @@ def _build_eq_panel_chain(
         ]
 
     drive = _clamp01(eq_color_drive)
-    low_r, low_g, low_b = hex_to_rgbf(palette.low_hex)
-    mid_r, mid_g, mid_b = hex_to_rgbf(palette.mid_hex)
-    high_r, high_g, high_b = hex_to_rgbf(palette.high_hex)
-    tint_alpha = min(0.90, max(0.56, 0.48 + drive * 0.34))
-    glow_alpha = min(0.78, max(0.24, eq_alpha + 0.20 + drive * 0.12))
-    main_alpha = max(0.16, 0.36 - drive * 0.14)
+    glow_alpha = min(0.90, max(0.34, eq_alpha + 0.26 + drive * 0.16))
+    main_alpha = max(0.26, 0.52 - drive * 0.08)
     hue_expr = build_hue_expr(
         color_drive=drive,
         pulse_enable_expr=pulse_enable_expr,
@@ -120,26 +116,12 @@ def _build_eq_panel_chain(
         base_depth=palette.hue_depth,
         pulse_boost=palette.pulse_boost,
     )
-    lw = eq_w // 3
-    mw = eq_w // 3
-    hw = eq_w - lw - mw
-
     return [
         f"[{audio_label}]showfreqs=s={eq_w}x{eq_h}:mode=bar:fscale=log:ascale=sqrt:win_func=hann:colors=white,format=rgba,colorkey=0x000000:0.10:0.0[eqp_raw]",
-        "[eqp_raw]split=3[eqp_main][eqp_glow_src][eqp_tint_src]",
-        f"[eqp_glow_src]gblur=sigma=2.2:steps=1,colorchannelmixer=aa={glow_alpha:.3f}[eqp_glow]",
-        "[eqp_tint_src]split=3[eqp_l0][eqp_m0][eqp_h0]",
-        f"[eqp_l0]crop=w={lw}:h={eq_h}:x=0:y=0,colorchannelmixer=rr={low_r:.4f}:gg={low_g:.4f}:bb={low_b:.4f}:aa={tint_alpha:.3f}[eqp_l]",
-        f"[eqp_m0]crop=w={mw}:h={eq_h}:x={lw}:y=0,colorchannelmixer=rr={mid_r:.4f}:gg={mid_g:.4f}:bb={mid_b:.4f}:aa={tint_alpha:.3f}[eqp_m]",
-        f"[eqp_h0]crop=w={hw}:h={eq_h}:x={lw+mw}:y=0,colorchannelmixer=rr={high_r:.4f}:gg={high_g:.4f}:bb={high_b:.4f}:aa={tint_alpha:.3f}[eqp_h]",
-        f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqp_t0]",
-        "[eqp_t0][eqp_l]overlay=0:0:format=auto[eqp_t1]",
-        f"[eqp_t1][eqp_m]overlay={lw}:0:format=auto[eqp_t2]",
-        f"[eqp_t2][eqp_h]overlay={lw+mw}:0:format=auto[eqp_t3]",
-        f"[eqp_t3]hue=H='{hue_expr}':s=1.32[eqp_tint]",
-        f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba,drawbox=x=0:y=0:w={eq_w}:h={eq_h}:color=0x{palette.frame_hex}@0.08:t=fill[eqp_bg]",
-        "[eqp_bg][eqp_glow]overlay=0:0:format=auto[eqp_c0]",
-        "[eqp_c0][eqp_tint]overlay=0:0:format=auto[eqp_c1]",
+        "[eqp_raw]split=2[eqp_main][eqp_glow_src]",
+        f"[eqp_glow_src]gblur=sigma=2.2:steps=1,hue=H='{hue_expr}':s=1.30,colorchannelmixer=aa={glow_alpha:.3f}[eqp_glow]",
+        f"color=c=black@0.0:s={eq_w}x{eq_h},format=rgba[eqp_c0]",
+        "[eqp_c0][eqp_glow]overlay=0:0:format=auto[eqp_c1]",
         f"[eqp_main]colorchannelmixer=aa={main_alpha:.3f}[eqp_main_a]",
         "[eqp_c1][eqp_main_a]overlay=0:0:format=auto[eqp_c2]",
         f"[eqp_c2]drawbox=x=0:y=0:w={eq_w}:h=1:color=0x{palette.frame_hex}@0.22:t=fill[eqp_c3]",
@@ -266,15 +248,15 @@ def build_filter_graph(
     chains = [
         "[0:v]split=2[cvsrc][bgsrc]",
         "[bgsrc]scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,format=rgba[bg0]",
-        "[bg0]gblur=sigma=40,eq=brightness=-0.58:contrast=1.14:saturation=0.66[bg1]",
-        f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.14:t=fill[bg2]",
-        f"[bg2]drawbox=x=0:y=0:w=1920:h=1080:color=black@0.28:t=fill[bg3]",
-        f"[bg3]drawbox=x=0:y=0:w=690:h=1080:color=black@0.26:t=fill[bg4]",
-        f"[bg4]drawbox=x=740:y=0:w=8:h=1080:color=0x{accent_hex}@0.22:t=fill[bg5]",
-        f"[bg5]drawbox=x=0:y=0:w=1920:h=210:color=0x{mood_bg_hex}@0.55:t=fill[bg6]",
-        f"[bg6]drawbox=x=0:y=842:w=1920:h=238:color=0x{mood_bg_hex}@0.60:t=fill[bg7]",
-        "[bg7]drawgrid=width=96:height=96:thickness=1:color=white@0.05[bg8]",
-        "[bg8]vignette=PI/3:0.72[bg9]",
+        "[bg0]gblur=sigma=40,eq=brightness=-0.64:contrast=1.12:saturation=0.56[bg1]",
+        f"[bg1]drawbox=x=0:y=0:w=1920:h=1080:color=0x{mood_tint_hex}@0.08:t=fill[bg2]",
+        f"[bg2]drawbox=x=0:y=0:w=1920:h=1080:color=black@0.36:t=fill[bg3]",
+        f"[bg3]drawbox=x=0:y=0:w=690:h=1080:color=black@0.34:t=fill[bg4]",
+        f"[bg4]drawbox=x=740:y=0:w=8:h=1080:color=0x{accent_hex}@0.16:t=fill[bg5]",
+        f"[bg5]drawbox=x=0:y=0:w=1920:h=210:color=0x{mood_bg_hex}@0.42:t=fill[bg6]",
+        f"[bg6]drawbox=x=0:y=842:w=1920:h=238:color=0x{mood_bg_hex}@0.46:t=fill[bg7]",
+        "[bg7]drawgrid=width=96:height=96:thickness=1:color=white@0.035[bg8]",
+        "[bg8]vignette=PI/3:0.78[bg9]",
     ]
 
     _append_motion_chain(chains, input_label="bg9", output_label="bg_motion", mode=camera_motion, strength=camera_strength)
