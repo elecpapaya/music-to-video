@@ -125,9 +125,35 @@ python make_player_glass.py \
 
 Note: `make_player_glass.py --eq-style prism` runs one extra audio analysis pass (`astats`) to drive beat-synced hue motion.
 
+Prism rendering (current):
+- EQ panel fill tint is transparent (no full-area orange wash).
+- Color motion is applied to EQ bars/glow only.
+- 3-band split tint is removed to avoid vertical seam artifacts.
+
+Higher-visibility Prism presets:
+```bash
+python make_player_apple.py \
+  --title "Midnight satellite" \
+  --eq-style prism \
+  --eq-intensity punchy \
+  --eq-glow 0.85 \
+  --eq-opacity 1.00 \
+  --eq-color-drive 0.70
+```
+
+```bash
+python make_player_glass.py \
+  --title "Midnight satellite" \
+  --eq-style prism \
+  --eq-color-drive 0.70 \
+  --reactive-level 0.40 \
+  --reactive-glow 0.55
+```
+
 Why EQ changes may look subtle
 - If you run without `--eq-style prism`, the script stays on `legacy` EQ.
 - Very low `--eq-color-drive` (for prism) can make color motion hard to notice.
+- If you keep reusing the same output file, compare with a separate `--outdir` to avoid confusing old/new renders.
 - Compare outputs with separate folders:
 ```bash
 python make_player_apple.py --title "Midnight satellite" --eq-style legacy --outdir output/eq_legacy
